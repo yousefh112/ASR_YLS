@@ -1,0 +1,21 @@
+name: CI
+
+on: push
+
+jobs:
+  build:
+    name: apriltag_msgs
+    runs-on: ubuntu-latest
+
+    container:
+      image: ubuntu:26.04
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - uses: ros-tooling/setup-ros@v0.7
+
+    - uses: ros-tooling/action-ros-ci@v0.4
+      with:
+        package-name: apriltag_msgs
+        target-ros2-distro: lyrical
