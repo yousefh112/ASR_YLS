@@ -196,6 +196,9 @@ Getting this wrong is not dangerous — readings past the configured horizon are
 treated as "nothing there", which never invents an obstacle — but the robot maps
 less per scan than it could.
 
+**`mission_duration` again** — it is worth saying twice. Everything else on this
+list is worth tens of points; this one is worth 180.
+
 **`home_tolerance`** (`config/param_mission.yaml`, default 0.35 m) — the rules
 say 50 cm. Aiming at 35 leaves room for the difference between where TF thinks
 the robot is and where it physically is.
@@ -213,7 +216,9 @@ and `scan_rotation_min_slack` control the camera sweep at each frontier.
 | `ros2 topic list` empty | Middleware mismatch, or a stale daemon | Check `RMW_IMPLEMENTATION` on both ends; `pkill -9 -f ros && ros2 daemon stop` |
 | "exploration complete" in seconds | `/frontier_centroids` silent, or every centroid rejected | The mission logs the reason. Check `ros2 topic echo /frontier_centroids --once` |
 | Robot never moves, Nav2 active | No path to any frontier | `ros2 topic echo /global_costmap/costmap --once`; check the map has free space |
-| Map stops growing | `/scan_filtered` dead | `ros2 topic hz /scan_filtered`. The whole stack reads it |
+| Map stops growing | `/scan_filtered` dead | `ros2 topic hz /scan_filtered`. The whole stack reads it, so the bringup is configured to shut down if `scan_preprocess` exits rather than let everything run blind |
+| Everything looks healthy but the robot explores a 4 m box | Same cause. Check the bringup log for a `scan_preprocess` traceback | |
+| Tag positions off by tens of cm | A detection was fused against a stale transform | Should not happen: detections whose exact-timestamp lookup fails are dropped. If it recurs, check `ros2 topic hz /tf` |
 | Map smears, walls double | False loop closure | The mission logs `SLAM moved the map by ...`. See below |
 | Tags detected, positions nonsense | Optical-frame convention | `tag_manager` logs the frame it parented to and whether it corrected. Force with `optical_correction:=on|off` |
 | Pad publishes `/joy`, robot still | Deadman button | `enable_button: 5` in `config/param_teleop.yaml` |

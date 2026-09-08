@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, Shutdown
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
@@ -93,6 +93,13 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'sensor_max_range': laser_max_range,
         }],
+        # If this dies, slam_toolbox and both Nav2 costmaps go blind and the
+        # rest of the stack carries on looking healthy: the map simply stops
+        # growing, exploration reports the arena finished, and the run is lost
+        # with no error anywhere.  Taking the launch down with it turns twenty
+        # wasted minutes into an immediate, obvious failure.
+        on_exit=Shutdown(reason='scan_preprocess exited; the whole stack '
+                                'reads /scan_filtered'),
     )
 
     ld = LaunchDescription()

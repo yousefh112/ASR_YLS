@@ -102,6 +102,7 @@ class TagManager(Node):
         self._start_time = None
         self._optical_fix = optical_rotation()
         self._announced_parent = None
+        self._skipped = 0
         self._frame_pattern = re.compile(
             r'^/?' + re.escape(self.get_parameter('tag_family').value) + r':(\d+)$')
 
@@ -119,6 +120,12 @@ class TagManager(Node):
     # ------------------------------------------------------------------ #
     # Public surface
     # ------------------------------------------------------------------ #
+
+    @property
+    def skipped(self):
+        """Detections dropped because TF could not answer at their timestamp."""
+        with self._lock:
+            return self._skipped
 
     @property
     def count(self):
@@ -237,11 +244,20 @@ class TagManager(Node):
 
         detection_range = float(np.linalg.norm(translation_of(camera_to_tag)))
 
+        # Strictly at the detection's own timestamp.  Falling back to the
+        # latest transform when the exact one is unavailable looks harmless and
+        # is not: the camera sweeps at about a radian per second, so half a
+        # second of staleness rotates the sighting by thirty degrees, and at
+        # 1.3 m that put a tag 63 cm from where it actually was - four times
+        # the error that separates full accuracy points from none.  Detections
+        # arrive at 10 Hz and the tag stays in view for a second or more, so
+        # dropping one costs nothing at all.
         try:
             to_map = self._buffer.lookup_transform(
-                self.map_frame, parent, stamp, timeout=Duration(seconds=0.1))
-        except tf2_ros.ExtrapolationException:
-            to_map = self._buffer.lookup_transform(self.map_frame, parent, Time())
+                self.map_frame, parent, stamp, timeout=Duration(seconds=0.2))
+        except tf2_ros.TransformException:
+            self._skipped += 1
+            return
 
         x, y, z = translation_of(
             matrix_from_transform_msg(to_map.transform) @ camera_to_tag)

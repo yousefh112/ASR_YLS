@@ -104,7 +104,12 @@ controller_server:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      # 0.5 rad, not 0.25.  Every goal in this mission is either a frontier,
+      # where the heading is a by-product of the direction of travel and nobody
+      # cares about it, or the start pose, which is scored on position alone.
+      # Insisting on 14 degrees spends several seconds turning on the spot at
+      # the end of every single goal, for no points.
+      yaw_goal_tolerance: 0.5
 
     # DWB parameters
     FollowPath:
@@ -132,7 +137,12 @@ controller_server:
       sim_time: 1.5
       linear_granularity: 0.05
       angular_granularity: 0.025
-      transform_tolerance: 0.2
+      # 0.5, not the reference's 0.2.  The robot PC runs SLAM, the camera, the
+      # AprilTag detector and the whole Nav2 stack at once, and under that load
+      # a 0.2 s tolerance produces "Unable to transform robot pose into global
+      # plan's frame" and the controller aborts a goal it could have finished.
+      # 0.5 s of staleness is 11 cm at the burger's top speed.
+      transform_tolerance: 0.5
       xy_goal_tolerance: 0.05
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
@@ -158,6 +168,9 @@ local_costmap:
       robot_base_frame: base_footprint
       use_sim_time: False
       rolling_window: true
+      # See controller_server: this machine is loaded enough that the default
+      # 0.3 s drops scans and pose lookups.
+      transform_tolerance: 0.5
       width: 3
       height: 3
       resolution: 0.05
@@ -239,6 +252,7 @@ global_costmap:
       use_sim_time: False
       robot_radius: 0.105   # TurtleBot3 Burger
       resolution: 0.05
+      transform_tolerance: 0.5
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       obstacle_layer:

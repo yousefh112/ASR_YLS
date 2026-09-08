@@ -13,10 +13,12 @@ wall is always the nearest one.
 *Expiry* stops blacklisting from ending the mission.  A frontier the planner
 refuses at minute two is often reachable at minute six, once the corridor
 leading to it has been mapped: the global costmap is mostly unknown early on and
-"no path" then means "not yet", not "never".  A permanent blacklist on the
-strength of an early planner refusal is how an exploration run quietly stops
-after ninety seconds.  Refusals therefore expire; only a frontier the robot
-actually drove at and failed to reach is banned for good.
+"no path" then means "not yet", not "never".  Even a frontier the robot drove at
+and failed to reach is worth another try much later, from a different approach
+and against a better map - a run that banned its only remaining frontier for
+good ended with the arena five percent explored, which costs far more than the
+forty seconds a retry would have wasted.  So every ban expires; drive failures
+simply last much longer than planner refusals.
 
 *Hysteresis* stops the robot dithering between two similar candidates every time
 the map updates and the centroids shift a few cells.
@@ -46,14 +48,15 @@ class FrontierPolicy:
                  hysteresis=1.35,
                  candidates_to_plan=5,
                  unreachable_attempts=3,
-                 unreachable_ttl=90.0):
+                 unreachable_ttl=90.0,
+                 failure_ttl=240.0):
         """
         blacklist_radius     a candidate within this of a blacklisted point is
                              treated as the same frontier
         min_distance         candidates closer than this are ignored; the robot
                              is effectively already there and Nav2 will refuse
-        max_attempts         drive failures at one frontier before it is banned
-                             permanently
+        max_attempts         drive failures at one frontier before it is set
+                             aside
         turn_penalty         how much a candidate behind the robot is penalised,
                              as a fraction of its distance at 180 degrees.  Pure
                              nearest-frontier makes a differential robot spin on
@@ -72,6 +75,10 @@ class FrontierPolicy:
         unreachable_ttl      how long a planner-refused frontier stays set
                              aside.  After this it is offered again, because the
                              map it was refused against no longer exists.
+        failure_ttl          how long a frontier the robot failed to *reach*
+                             stays set aside.  Much longer than a planner
+                             refusal, but not forever: the alternative is a run
+                             that stops because its last frontier is banned.
         """
         self.blacklist_radius = float(blacklist_radius)
         self.min_distance = float(min_distance)
@@ -81,6 +88,7 @@ class FrontierPolicy:
         self.candidates_to_plan = int(candidates_to_plan)
         self.unreachable_attempts = int(unreachable_attempts)
         self.unreachable_ttl = float(unreachable_ttl)
+        self.failure_ttl = float(failure_ttl)
 
         self._centroids = []
         self._blacklist = []         # [(x, y), expires_at]
@@ -129,6 +137,19 @@ class FrontierPolicy:
         ignores them."""
         self._blacklist = [e for e in self._blacklist if e[1] > now]
 
+    def clear_blacklist(self):
+        """Forget every ban and every attempt.
+
+        The last resort before declaring an arena explored: if the only
+        candidates left are ones already given up on, trying them again is
+        strictly better than going home early with the map half empty.
+        Returns how many bans were dropped.
+        """
+        dropped = len(self._blacklist)
+        self._blacklist = []
+        self._attempts = []
+        return dropped
+
     # ------------------------------------------------------------------ #
     # Outcome of an attempt
     # ------------------------------------------------------------------ #
@@ -144,14 +165,17 @@ class FrontierPolicy:
     def note_failure(self, point, now=0.0):
         """The robot drove at this frontier and did not get there.
 
-        Returns True when this failure banned the frontier.  The ban is
-        permanent: unlike a planner refusal, this is evidence from the robot
-        itself that the place is not worth another sixty seconds.
+        Returns True when this failure set the frontier aside.  The ban lasts
+        far longer than a planner refusal - this is evidence from the robot
+        itself, not from a costmap that had not been filled in yet - but it
+        still lapses, because a mission that bans its last frontier stops
+        exploring, and that costs more than one wasted approach.
         """
         entry = self._attempt_entry(point)
         entry[1] += 1
         if entry[1] >= self.max_attempts:
-            self.add_to_blacklist(entry[0], now=now, ttl=None)
+            self.add_to_blacklist(entry[0], now=now, ttl=self.failure_ttl)
+            entry[1] = 0
             return True
         return False
 

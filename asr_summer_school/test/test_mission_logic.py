@@ -234,24 +234,29 @@ def test_a_single_planner_refusal_does_not_bury_a_frontier():
     assert policy.is_blacklisted((1.0, 0.0))
 
 
-def test_a_planner_ban_lapses_but_a_drive_failure_does_not():
-    """The map a refusal was made against stops existing; a wall does not."""
+def test_a_drive_failure_outlasts_a_planner_refusal():
+    """Both lapse, but they carry different weight: a refusal is a costmap that
+    was not filled in yet, a failed approach is the robot's own evidence."""
     policy = FrontierPolicy(unreachable_attempts=1, unreachable_ttl=90.0,
-                            max_attempts=1)
+                            max_attempts=1, failure_ttl=240.0)
     policy.note_unreachable((1.0, 0.0), now=0.0)
-    assert policy.is_blacklisted((1.0, 0.0), now=10.0)
-    assert not policy.is_blacklisted((1.0, 0.0), now=100.0)
-
     policy.note_failure((3.0, 0.0), now=0.0)
-    assert policy.is_blacklisted((3.0, 0.0), now=100000.0)
+
+    assert policy.is_blacklisted((1.0, 0.0), now=10.0)
+    assert policy.is_blacklisted((3.0, 0.0), now=10.0)
+
+    # The refusal has lapsed by now; the failed approach has not.
+    assert not policy.is_blacklisted((1.0, 0.0), now=100.0)
+    assert policy.is_blacklisted((3.0, 0.0), now=100.0)
 
 
-def test_a_permanent_ban_survives_a_later_temporary_one():
-    policy = FrontierPolicy(max_attempts=1, unreachable_attempts=1,
-                            unreachable_ttl=10.0)
+def test_a_longer_ban_is_never_shortened_by_a_later_one():
+    """Order of arrival must not decide how long a frontier stays set aside."""
+    policy = FrontierPolicy(max_attempts=1, failure_ttl=240.0,
+                            unreachable_attempts=1, unreachable_ttl=10.0)
     policy.note_failure((1.0, 0.0), now=0.0)
     policy.note_unreachable((1.0, 0.0), now=0.0)
-    assert policy.is_blacklisted((1.0, 0.0), now=1e6)
+    assert policy.is_blacklisted((1.0, 0.0), now=100.0)
 
 
 def test_an_empty_selection_says_why():
@@ -644,3 +649,55 @@ def test_costmaps_read_the_same_scan_the_mapper_does(costmap):
             continue
         for source in sources.split():
             assert params[layer][source]['topic'] == mapper_topic
+
+
+def test_a_drive_failure_ban_also_lapses():
+    """A run that permanently banned its last frontier went home with the
+    arena five percent explored.  Forty seconds re-approaching a frontier is
+    cheaper than that by two orders of magnitude."""
+    policy = FrontierPolicy(max_attempts=1, failure_ttl=240.0)
+    policy.note_failure((1.0, 0.0), now=0.0)
+    assert policy.is_blacklisted((1.0, 0.0), now=100.0)
+    assert not policy.is_blacklisted((1.0, 0.0), now=300.0)
+
+
+def test_clearing_the_blacklist_makes_everything_selectable_again():
+    policy = FrontierPolicy(max_attempts=1)
+    policy.update([(1.0, 0.0), (2.0, 0.0)])
+    policy.note_failure((1.0, 0.0))
+    policy.note_failure((2.0, 0.0))
+    assert policy.select((0.0, 0.0), 0.0) is None
+    assert policy.clear_blacklist() == 2
+    assert policy.select((0.0, 0.0), 0.0) == (1.0, 0.0)
+
+
+def test_a_frontier_is_worth_driving_to_before_nav2_would_call_it_reached():
+    """Below Nav2's own goal tolerance there is nothing to drive to."""
+    params = _mission_yaml()['mission_control']['ros__parameters']
+    assert params['min_frontier_distance'] > 0.25
+
+
+# --------------------------------------------------------------------------- #
+# Node parameter hygiene
+#
+# rclpy raises ParameterNotDeclaredException on read, at construction time, so
+# a parameter that is used but never declared kills the node the instant it
+# starts.  Under a launch file that is one traceback in a log nobody is
+# watching, and everything downstream then runs blind.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize('module', [
+    'mission_control.py', 'tag_manager.py', 'scan_preprocess.py',
+    'frontier_client.py', 'map_recorder.py',
+])
+def test_every_parameter_read_is_also_declared(module):
+    import re
+
+    source = open(os.path.join(
+        _package_root(), 'asr_summer_school', module)).read()
+    declared = set(re.findall(r"declare_parameter\(\s*'([^']+)'", source))
+    # `param()` is mission_control's own accessor over get_parameter.
+    read = set(re.findall(r"get_parameter\(\s*'([^']+)'", source))
+    read |= set(re.findall(r"\bparam\(\s*'([^']+)'", source))
+    read.discard('use_sim_time')          # declared by rclpy itself
+    assert read - declared == set()

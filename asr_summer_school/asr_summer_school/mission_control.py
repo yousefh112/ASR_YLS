@@ -121,6 +121,22 @@ class MissionSupport(Node):
         self.declare_parameter('spin_time_allowance', 25.0)
         self.declare_parameter('loop_period', 0.4)
         self.declare_parameter('min_frontier_distance', 0.45)
+        # A frontier goal exists to make unknown space known.  Once the
+        # detector stops reporting a frontier anywhere near the target, that
+        # has happened - the robot's own LiDAR filled it in on the way - and
+        # standing on the exact centroid afterwards is pure cost.  A centroid
+        # against a wall may also sit inside the inflation layer, where Nav2's
+        # 25 cm goal tolerance can never be met and the goal burns its entire
+        # timeout for nothing.
+        #
+        # Deliberately not a distance test.  Accepting a goal because the robot
+        # is within some radius of it couples two thresholds that then have to
+        # be kept in the right order: set the radius above the distance at
+        # which a frontier is worth driving to and every goal completes the
+        # instant it is dispatched, the robot never moves, and the run ends
+        # with four "reached" goals and a two-metre map.  Asking whether the
+        # frontier still exists has no such failure mode.
+        self.declare_parameter('consumed_checks', 3)
         self.declare_parameter('blacklist_radius', 0.8)
         self.declare_parameter('frontier_max_attempts', 2)
         # Planner refusals are counted separately from drive failures and the
@@ -128,6 +144,12 @@ class MissionSupport(Node):
         # frontier is mostly unknown, and "no path" means "not yet".
         self.declare_parameter('frontier_unreachable_attempts', 3)
         self.declare_parameter('frontier_unreachable_ttl', 90.0)
+        # A frontier the robot drove at and could not reach is set aside for
+        # much longer than one the planner merely refused - but not forever.
+        self.declare_parameter('frontier_failure_ttl', 240.0)
+        # How many times the whole blacklist may be thrown away rather than
+        # declare an arena explored while frontiers are still on the list.
+        self.declare_parameter('blacklist_clears', 2)
         self.declare_parameter('turn_penalty', 0.6)
         self.declare_parameter('hysteresis', 1.35)
         # Ask the planner for the true cost of the top few candidates instead
@@ -233,7 +255,8 @@ class MissionControl:
             hysteresis=support.param('hysteresis'),
             candidates_to_plan=support.param('candidates_to_plan'),
             unreachable_attempts=support.param('frontier_unreachable_attempts'),
-            unreachable_ttl=support.param('frontier_unreachable_ttl'))
+            unreachable_ttl=support.param('frontier_unreachable_ttl'),
+            failure_ttl=support.param('frontier_failure_ttl'))
 
         self.home_odom = None
         self.map_to_odom = None
@@ -242,8 +265,10 @@ class MissionControl:
         self.target = None
         self.goal_started_at = None
         self.goal_patience_s = 60.0
+        self.consumed_ticks = 0
         self.empty_since = None
         self.recoveries_used = 0
+        self.blacklist_clears_used = 0
         self.last_budget_update = 0.0
 
         self.goals_sent = 0
@@ -506,6 +531,21 @@ class MissionControl:
             return None
         return self.plan_cost
 
+    def target_is_consumed(self):
+        """True once the detector no longer reports a frontier at the target.
+
+        Centroids shift by a few cells every time the map updates, and a target
+        can briefly fail to match one, so this has to agree with itself several
+        ticks running before it is believed.
+        """
+        if self.target is None:
+            return False
+        radius = self.support.param('blacklist_radius')
+        live = any(math.hypot(c[0] - self.target[0], c[1] - self.target[1]) <= radius
+                   for c in self.frontiers.centroids)
+        self.consumed_ticks = 0 if live else self.consumed_ticks + 1
+        return self.consumed_ticks >= int(self.support.param('consumed_checks'))
+
     def goal_patience(self, distance):
         """How long to let one frontier goal run, given how far away it is."""
         speed = max(0.05, self.support.param('return_speed'))
@@ -520,6 +560,7 @@ class MissionControl:
         self.navigator.goToPose(goal)
         self.target = target
         self.goal_started_at = self.clock.elapsed()
+        self.consumed_ticks = 0
         distance = math.hypot(target[0] - current[0], target[1] - current[1])
         self.goal_patience_s = self.goal_patience(distance)
         self.goals_sent += 1
@@ -622,6 +663,27 @@ class MissionControl:
             self.empty_since = self.clock.elapsed()
             return
 
+        # Last resort before going home early.  If the detector is still
+        # publishing frontiers and the only reason none can be chosen is that
+        # they are all on the blacklist, the blacklist is the thing that is
+        # wrong.  Retrying a frontier that failed twenty minutes ago against a
+        # map that has since been filled in is far cheaper than ending the run
+        # with the arena half explored.
+        if (self.frontiers.centroids
+                and self.selector.active_blacklist(now)
+                and self.blacklist_clears_used
+                < int(self.support.param('blacklist_clears'))):
+            self.blacklist_clears_used += 1
+            dropped = self.selector.clear_blacklist()
+            self.log.warn(
+                'every remaining frontier is blacklisted; dropping all {} bans '
+                'and trying again ({}/{})'.format(
+                    dropped, self.blacklist_clears_used,
+                    int(self.support.param('blacklist_clears'))))
+            self.recoveries_used = 0
+            self.empty_since = self.clock.elapsed()
+            return
+
         self.stop_reason = 'exploration complete, no frontiers left ({})'.format(
             self.selector.last_rejection)
         self.log.info(self.stop_reason)
@@ -640,6 +702,12 @@ class MissionControl:
             return
 
         if self.target is not None:
+            if not self.navigator.isTaskComplete() and self.target_is_consumed():
+                self.navigator.cancelTask()
+                self.finish_goal(True, 'frontier already explored')
+                self.look_around()
+                return
+
             if self.navigator.isTaskComplete():
                 result = self.navigator.getResult()
                 if result == TaskResult.SUCCEEDED:

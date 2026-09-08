@@ -95,15 +95,15 @@ class ScanPreprocess(Node):
 
         self.declare_parameter('input_topic', 'scan')
         self.declare_parameter('output_topic', 'scan_filtered')
-        # The sensor's true horizon.  Rays reported at or beyond this, and
-        # non-finite ones, are treated as "nothing out there".
-        # The sensor's true horizon.  3.5 m is right for the LDS-01 and for
-        # the Gazebo burger; the LDS-02 fitted to these robots reports further.
+        # The sensor's true horizon: rays at or beyond it, and non-finite ones,
+        # are "nothing out there".  3.5 m is right for the LDS-01 and for the
+        # Gazebo burger; the LDS-02 fitted to these robots reports further.
         # Set it to 0.0 to take whatever the driver puts in range_max, or pass
         # `laser_max_range:=<metres>` to the bringup.  A mismatch is not fatal
         # - readings beyond it are simply treated as "nothing there", which
         # costs mapping range but never invents an obstacle - so this node
-        # checks the incoming scan and says so rather than failing.
+        # checks the incoming scan and warns rather than failing.
+        self.declare_parameter('sensor_max_range', 3.5)
         # Where a no-return ray is reported.  Must be far enough that the
         # phantom point falls outside Karto's correlation grid, whose
         # half-width is roughly the mapper's range threshold plus half the
@@ -160,6 +160,10 @@ class ScanPreprocess(Node):
                         scan.range_max))
         floor = max(self.sensor_min, scan.range_min)
 
+        # Captured before the message is rewritten: the log below reports what
+        # the driver said, and scan.range_max is about to stop being that.
+        driver_max = scan.range_max
+
         ranges = [map_range(v, horizon, floor, self.no_return)
                   for v in scan.ranges]
         no_return = sum(1 for v in ranges if v == self.no_return)
@@ -176,7 +180,7 @@ class ScanPreprocess(Node):
                 'driver reports range [{:.2f}, {:.2f}] m; using a {:.2f} m '
                 'horizon.  {} of {} rays saw nothing and are republished at '
                 '{:.1f} m with range_max {:.1f}; {} were closer than {:.2f} m'
-                .format(scan.range_min, scan.range_max, horizon,
+                .format(scan.range_min, driver_max, horizon,
                         no_return, len(ranges), self.no_return,
                         self.published_max, too_close, floor))
 
