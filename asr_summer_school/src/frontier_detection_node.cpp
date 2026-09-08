@@ -15,9 +15,16 @@ public:
     declare_parameter("epsilon", 0.5);
     declare_parameter("min_points", 3);
     declare_parameter("min_frontier_size", 5);
-    declare_parameter("active_area_radius", 5.0);
+    // Matches the LDS-02 horizon. Above this the detector proposes
+    // frontiers the robot can never observe and exploration stalls
+    // chasing them; the launch files override it with laser_max_range.
+    declare_parameter("active_area_radius", 3.5);
     declare_parameter("map_topic", std::string("map"));
-    declare_parameter("pose_topic", std::string("amcl_pose"));
+    // This stack runs slam_toolbox, not AMCL: slam_toolbox publishes the
+    // robot pose on "pose". With the old "amcl_pose" default, running this
+    // node outside the launch files leaves robot_x_/robot_y_ at (0, 0) and
+    // the active area centred on the map origin.
+    declare_parameter("pose_topic", std::string("pose"));
 
     params_.epsilon             = get_parameter("epsilon").as_double();
     params_.min_points          = get_parameter("min_points").as_int();

@@ -40,8 +40,15 @@ rclcpp_components_register_node(frontier_detection_node
 
 ament_python_install_package(${PROJECT_NAME})
 
+# Every runnable Python node must be listed here or `ros2 run` will not find
+# it: this package is ament_cmake, so ament_python_install_package installs the
+# importable module but not the executables.
 install(PROGRAMS
   ${PROJECT_NAME}/example_nav_to_pose.py
+  ${PROJECT_NAME}/mission_control.py
+  ${PROJECT_NAME}/scan_preprocess.py
+  ${PROJECT_NAME}/tag_manager.py
+  ${PROJECT_NAME}/score_report.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

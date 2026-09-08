@@ -1,10 +1,9 @@
-scan_to_scan_filter_chain:
-  ros__parameters:
-    filter1:
-      name: angle
-      type: laser_filters/LaserScanBinningFilter
-      params:
-        num_bins: 210
+# The scan preprocessing that used to be configured here now lives in
+# asr_summer_school/scan_preprocess.py, launched by slam_toolbox.launch.py.
+# It has to rewrite the message's range_max as well as the ranges themselves,
+# which no laser_filters plugin can do, and getting that wrong costs either the
+# map (rays discarded) or the localisation (phantom obstacles in the scan
+# matcher).  The reasoning is written out in full at the top of that file.
 
 slam_toolbox:
   ros__parameters:
@@ -21,6 +20,10 @@ slam_toolbox:
     odom_frame: odom
     map_frame: map
     base_frame: base_footprint
+    # /scan_filtered, and so do both Nav2 costmaps: one scan definition for the
+    # whole stack, so the map and the costmaps can never disagree about where
+    # the obstacles are.  scan_preprocess.py only rewrites the encoding of "no
+    # return"; every real measurement passes through untouched.
     scan_topic: /scan_filtered
     use_map_saver: true
     mode: mapping #localization
@@ -35,11 +38,18 @@ slam_toolbox:
     debug_logging: false
     throttle_scans: 1
     transform_publish_period: 0.02 #if 0 never publishes odometry
-    map_update_interval: 5.0
+    map_update_interval: 2.0  # frontier detection only sees published maps
     resolution: 0.05
-    restamp_tf: false
-    min_laser_range: 0.2 #for rastering images
-    max_laser_range: 10.0 #for rastering images
+    min_laser_range: 0.12  # LDS-02 minimum, matches the sim scan
+    # Karto's range *threshold*, deliberately 0.1 m below the sensor's 3.5 m
+    # horizon.  scan_preprocess.py reports a no-return ray at 20 m, which is
+    # above this threshold and so traced as free space out to 3.4 m with no
+    # obstacle at its end - while being far enough away that the phantom point
+    # Karto stores for it falls outside the scan matcher's correlation grid.
+    # 10.0, the value this replaced, rasters rays far past anything the LDS-02
+    # can measure.  Overridden from the launch file via `laser_max_range:=`,
+    # which carries the sensor horizon; the headroom is subtracted there.
+    max_laser_range: 3.4
     minimum_time_interval: 0.5
     transform_timeout: 0.2
     tf_buffer_duration: 30.0
@@ -49,19 +59,43 @@ slam_toolbox:
     # General Parameters
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.5
-    minimum_travel_heading: 0.5
-    check_min_dist_and_heading_precisely: false
+    # A scan node every 0.2 m / 0.2 rad rather than every 0.5.  Corridors about
+    # a metre wide with a 3.5 m sensor give the scan matcher very little to lock
+    # onto, and half a metre between nodes is enough for the estimate to drift
+    # before the next constraint arrives.  Denser nodes cost graph size, which
+    # for a ten minute run is not a constraint.
+    minimum_travel_distance: 0.2
+    minimum_travel_heading: 0.2
     scan_buffer_size: 10
-    scan_buffer_maximum_scan_distance: 10.0
+    scan_buffer_maximum_scan_distance: 4.0  # must stay above max_laser_range
     link_match_minimum_response_fine: 0.1  
     link_scan_maximum_distance: 1.5
+    # Loop closure, deliberately stricter than the slam_toolbox defaults.
+    #
+    # A false loop closure is the single most expensive thing that can happen
+    # to this mission: it does not degrade the estimate, it teleports it.  In a
+    # test run one of them moved the pose 3 m and 24 degrees in a single graph
+    # optimisation at t+434 s, and the robot then drove "home" to a point 0.84 m
+    # from the real start - outside the 50 cm circle, so the 150 points for
+    # returning on time were lost outright.  A maze of parallel corridors with
+    # a 3.5 m sensor is exactly the geometry that produces them: any two
+    # corridor segments look alike.
+    #
+    # The defaults trade accepting the occasional wrong closure for closing
+    # more loops.  Here the trade runs the other way: a ten minute run
+    # accumulates little enough drift that missing a true closure costs
+    # centimetres, while accepting a false one costs the run.
     loop_search_maximum_distance: 3.0
-    do_loop_closing: true 
-    loop_match_minimum_chain_size: 10           
-    loop_match_maximum_variance_coarse: 3.0  
-    loop_match_minimum_response_coarse: 0.35    
-    loop_match_minimum_response_fine: 0.45
+    do_loop_closing: true
+    # 15 scans, not 10: a longer chain has to agree before a match is believed.
+    loop_match_minimum_chain_size: 15
+    # 0.4, not 3.0.  This is the variance a coarse match may have and still be
+    # taken seriously; 3.0 accepts matches that are barely localised at all.
+    loop_match_maximum_variance_coarse: 0.4
+    # Correlation response floors, raised from 0.35 / 0.45.  Below these the
+    # scan "matches" a place it has not been.
+    loop_match_minimum_response_coarse: 0.55
+    loop_match_minimum_response_fine: 0.65
 
     # Correlation Parameters - Correlation Parameters
     correlation_search_space_dimension: 0.5

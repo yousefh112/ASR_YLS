@@ -1,0 +1,145 @@
+# Mission stack parameters.
+#
+# Everything that depends on the arena, the deadline or the robot lives here and
+# nowhere else, so nothing has to be edited in a hurry on Friday.
+#
+# Node names must match the ones the mission process actually creates, because
+# `mission_control.py` hosts several nodes in one executable and ROS matches
+# parameters by node name.  Keys must also match the names declared in code:
+# a key nothing declares is silently ignored, which looks exactly like a
+# setting that had no effect.
+#
+# `mission.launch.py` rewrites use_sim_time, mission_duration, output_directory
+# and optical_correction through RewrittenYaml, which only substitutes keys that
+# already exist in this file.  Do not delete those four.
+
+/**:
+  ros__parameters:
+    use_sim_time: false
+
+mission_control:
+  ros__parameters:
+    # ---------------- deadline ----------------
+    # The one number the organisers have not published.  Set it from the
+    # briefing before the run, here or with `mission_duration:=<seconds>`.
+    mission_duration: 600.0
+    startup_timeout: 120.0         # give SLAM, TF and Nav2 this long to come up
+    loop_period: 0.4               # state machine tick
+
+    # ---------------- return budget ----------------
+    # Re-estimated from a path the Nav2 planner actually produced, so these only
+    # shape the margin around it.  Returning on time is +150 against -30 for a
+    # minute late, so the margin is deliberately generous.
+    return_speed: 0.15             # effective m/s home, well under the 0.22 top
+    return_safety_factor: 1.3
+    return_fixed_margin: 20.0      # cancel the goal, final approach, export
+    budget_update_period: 3.0
+
+    # ---------------- arrival ----------------
+    # The rules say within 50 cm.  Aiming at 0.35 leaves room for the SLAM drift
+    # between what TF believes and where the robot physically is; accepting at
+    # exactly 0.50 would put the run on the boundary of a 150-point swing.
+    home_tolerance: 0.35
+    return_retries: 3
+
+    # A false loop closure does not degrade the pose estimate, it teleports it,
+    # and everything expressed in the map frame - including the recorded start
+    # pose - moves with it.  A change in map->odom this large inside one budget
+    # period is a graph re-optimisation, not the robot driving; legitimate
+    # corrections arrive in centimetres.  After one, the return aims at the
+    # start pose as odometry remembers it, which drifts but cannot jump.
+    odom_frame: 'odom'
+    map_jump_threshold: 0.35
+    map_jump_threshold_rad: 0.26
+    trust_odom_after_jump: true
+    return_grace: 45.0             # stop trying this far past the deadline
+
+    # ---------------- exploration ----------------
+    # How long one frontier goal may run, scaled by how far away it is:
+    # distance / return_speed * factor, clamped.  A flat timeout is either
+    # generous for a 2 m hop or mean for a 7 m one, and a run contains both.
+    goal_timeout_min: 40.0
+    goal_timeout_max: 90.0
+    goal_timeout_factor: 2.0
+
+    # An empty frontier list has to persist this long, and then survive this
+    # many full turns on the spot, before the arena counts as explored.  The
+    # tick-based patience this replaced gave up after three seconds, which is
+    # what a map looks like immediately after startup.
+    no_frontier_timeout: 25.0
+    recovery_spins: 3
+
+    # One full turn before exploring starts.  A single stationary scan leaves
+    # unknown gaps scattered through the free space; the detector reads every
+    # gap as a frontier and clusters the lot onto the robot's own position.
+    initial_spin: 6.28
+    spin_time_allowance: 25.0
+
+    # Frontier ranking.  See frontier_policy.FrontierPolicy for what each does.
+    min_frontier_distance: 0.45
+    blacklist_radius: 0.8
+    frontier_max_attempts: 2       # drive failures before a permanent ban
+    # Planner refusals are counted apart from drive failures and their ban
+    # lapses: early on, the costmap between the robot and a frontier is mostly
+    # unknown and "no path" means "not yet", not "never".
+    frontier_unreachable_attempts: 3
+    frontier_unreachable_ttl: 90.0
+    turn_penalty: 0.6              # bias against spinning to face a candidate
+    hysteresis: 1.35               # keep the current goal unless clearly beaten
+    use_planner_costs: true        # rank the shortlist by real path length
+    candidates_to_plan: 5
+
+    # Do not start a long trip across the arena on a thin time budget.
+    horizon_slack_threshold: 150.0
+    min_horizon: 1.5
+
+    # Rotate on arrival at each frontier so the forward-facing camera sweeps
+    # the area instead of only the direction of travel.  The camera sees about
+    # 60 degrees: without this, a tag on a wall the robot drove past is never
+    # detected.  A sweep costs roughly ten seconds and a tag is worth 50
+    # points, so it pays - but only while there is slack, because being a
+    # minute late costs 180.  Set to 0.0 to turn sweeping off entirely.
+    scan_rotation: 6.28
+    scan_rotation_min_slack: 90.0
+
+    # ---------------- frames and output ----------------
+    map_frame: 'map'
+    # base_footprint is the TurtleBot3 convention and what slam_toolbox
+    # publishes against.  CLAUDE.md defect 7.
+    base_frame: 'base_footprint'
+    output_directory: '~/asr_mission_output'
+
+tag_manager:
+  ros__parameters:
+    tag_family: 'tag36h11'
+    map_frame: 'map'
+
+    # There is no camera frame setting: the node reads the parent of each tag
+    # frame from TF, which is by definition the frame apriltag_ros stamped the
+    # image with.  Works unchanged in Gazebo and on either camera.
+    #
+    # CLAUDE.md defect 2.  apriltag_ros always solves the tag pose in the
+    # optical convention (z forward, y down).  A real driver stamps an optical
+    # frame to match; Gazebo's camera plugin falls back to the body-aligned
+    # link name, and the tag then comes out with the right ID at a rotated
+    # position.  'auto' applies the correction when the parent frame's name
+    # does not contain "optical", which is right in both environments.
+    # Force it with 'on' or 'off' if a driver ever names its frames oddly.
+    optical_correction: 'auto'
+
+    poll_period: 0.2
+    # apriltag_ros stops broadcasting when a tag leaves view but tf2 keeps
+    # serving the last transform, so anything older than this is a leftover in
+    # the buffer rather than a live sighting.
+    max_detection_age: 1.0
+
+    # Quality gates.  Tag position error grows with range, but a tag seen only
+    # once at 5 m is still +50 points while the entire accuracy category is
+    # worth 30 in total - so the gate is set by what can be decoded reliably,
+    # not by what can be decoded precisely.  Observations are weighted 1/r^2,
+    # so one close sighting later outweighs several distant ones and the
+    # estimate converges on the good measurement.
+    max_detection_range: 5.0
+    gate_distance: 0.75            # reject an observation this far off the mean
+    gate_patience: 5               # ...until this many in a row say otherwise
+    publish_markers: true

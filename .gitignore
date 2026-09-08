@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+# colcon output left behind by a build started from the wrong directory.
+# The workspace root is ~/ASR_YLS/ros2_ws; nothing should be built from here.
+install/
+build/
+log/
+.pytest_cache/
+__pycache__/

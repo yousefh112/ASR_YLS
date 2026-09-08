@@ -46,7 +46,6 @@ def generate_launch_description():
     use_composition = LaunchConfiguration('use_composition')
     use_respawn = LaunchConfiguration('use_respawn')
     log_level = LaunchConfiguration('log_level')
-    use_intra_process_comms = LaunchConfiguration('use_intra_process_comms')
 
 
     # Map fully qualified names to relative ones so the node's namespace can be prepended.
@@ -59,8 +58,9 @@ def generate_launch_description():
                   ('/tf_static', 'tf_static')]
 
     # Create our own temporary YAML files that include substitutions
+    # RewrittenYaml only substitutes keys already present in the source file,
+    # so listing one that param_nav2.yaml does not define does nothing at all.
     param_substitutions = {
-        'use_intra_process_comms': use_intra_process_comms,
         'use_sim_time': use_sim_time,
         'yaml_filename': map_yaml_file}
 
@@ -135,12 +135,6 @@ def generate_launch_description():
         'log_level', default_value='info',
         description='log level')
 
-    declare_use_intra_process_comms_cmd = DeclareLaunchArgument(
-        'use_intra_process_comms',
-        default_value='True',
-        description='Whether to use intra process communications',
-    )
-
     # Specify the actions
     bringup_cmd_group = GroupAction([
         PushRosNamespace(
@@ -169,7 +163,14 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(launch_dir,
                                                        'localization_launch.py')),
-            condition=IfCondition(PythonExpression(['not ', slam, ' and ', use_localization])),
+            # Lower-cased and quoted before Python sees it.  The bare form
+            # evaluated only because the defaults happen to be the Python
+            # literals 'False'/'False'; passing the ROS-conventional
+            # `use_localization:=true` raised NameError inside the launch
+            # description and took the whole stack down with it.
+            condition=IfCondition(PythonExpression(
+                ["'", slam, "'.lower() == 'false' and '",
+                 use_localization, "'.lower() == 'true'"])),
             launch_arguments={'namespace': namespace,
                               'map': map_yaml_file,
                               'use_sim_time': use_sim_time,
@@ -187,6 +188,10 @@ def generate_launch_description():
                               'params_file': params_file,
                               'use_composition': use_composition,
                               'use_respawn': use_respawn,
+                              # navigation_launch.py declares its own log_level
+                              # and defaults it to info; without this the
+                              # argument here only reached the container.
+                              'log_level': log_level,
                               'container_name': 'nav2_container'}.items()),
     ])
 
@@ -208,7 +213,6 @@ def generate_launch_description():
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
     ld.add_action(declare_use_localization_cmd)
-    ld.add_action(declare_use_intra_process_comms_cmd)
 
     # Add the actions to launch all of the navigation nodes
     ld.add_action(bringup_cmd_group)

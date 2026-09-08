@@ -24,6 +24,19 @@
   <depend>navigation2</depend>
   <depend>slam_toolbox</depend>
 
+  <!-- Declared here because rosdep does not otherwise pull them and the
+       mission stack fails at runtime rather than at build time without. -->
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>python3-numpy</depend>
+  <exec_depend>apriltag_ros</exec_depend>
+  <exec_depend>teleop_twist_joy</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>gazebo_ros_pkgs</exec_depend>
+  <exec_depend>laser_filters</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

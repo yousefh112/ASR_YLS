@@ -20,10 +20,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
 
 
 def generate_launch_description():
@@ -41,8 +41,13 @@ def generate_launch_description():
         launch_arguments={"world": world}.items(),
     )
 
+    # gui:=false runs gzserver alone.  The physics and every sensor plugin
+    # still run, so a headless run produces the same topics as a windowed one
+    # at a fraction of the cost; useful for repeated scoring runs and for
+    # driving the stack over SSH.
     gzclient_cmd = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py"))
+        PythonLaunchDescriptionSource(os.path.join(pkg_gazebo_ros, "launch", "gzclient.launch.py")),
+        condition=IfCondition(LaunchConfiguration("gui", default="true")),
     )
 
     robot_state_publisher_cmd = IncludeLaunchDescription(
@@ -56,6 +61,14 @@ def generate_launch_description():
     )
 
     ld = LaunchDescription()
+
+    ld.add_action(DeclareLaunchArgument(
+        "gui", default_value="true",
+        description="Start gzclient.  false runs Gazebo headless."))
+    ld.add_action(DeclareLaunchArgument(
+        "x_pose", default_value="0.0", description="Robot spawn x"))
+    ld.add_action(DeclareLaunchArgument(
+        "y_pose", default_value="0.0", description="Robot spawn y"))
 
     # Add the commands to the launch description
     ld.add_action(gzserver_cmd)

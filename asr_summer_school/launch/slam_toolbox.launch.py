@@ -2,32 +2,18 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, EmitEvent, LogInfo,
-                            RegisterEventHandler)
-from launch.conditions import IfCondition
-from launch.events import matches_action
-from launch.substitutions import (AndSubstitution, LaunchConfiguration,
-                                  NotSubstitution)
-from launch_ros.actions import LifecycleNode, Node
-from launch_ros.event_handlers import OnStateTransition
-from launch_ros.events.lifecycle import ChangeState
-from lifecycle_msgs.msg import Transition
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
+from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
-    autostart = LaunchConfiguration('autostart')
-    use_lifecycle_manager = LaunchConfiguration("use_lifecycle_manager")
     use_sim_time = LaunchConfiguration('use_sim_time')
     slam_params_file = LaunchConfiguration('slam_params_file')
+    laser_max_range = LaunchConfiguration('laser_max_range')
 
-    declare_autostart_cmd = DeclareLaunchArgument(
-        'autostart', default_value='true',
-        description='Automatically startup the slamtoolbox. '
-                    'Ignored when use_lifecycle_manager is true.')
-    declare_use_lifecycle_manager = DeclareLaunchArgument(
-        'use_lifecycle_manager', default_value='false',
-        description='Enable bond connection during node activation')
     declare_use_sim_time_argument = DeclareLaunchArgument(
         'use_sim_time',
         default_value='true',
@@ -37,20 +23,48 @@ def generate_launch_description():
         default_value=os.path.join(get_package_share_directory("asr_summer_school"),
                                    'config', 'param_slam_toolbox.yaml'),
         description='Full path to the ROS2 parameters file to use for the slam_toolbox node')
+    # The LDS-02 and its Gazebo model both stop at 3.5 m. Rastering rays out
+    # past anything actually measured is CLAUDE.md defect 5; exposed here so
+    # the physical arena can be matched without editing the config.
+    declare_laser_max_range_cmd = DeclareLaunchArgument(
+        'laser_max_range', default_value='3.5',
+        description='Maximum usable laser range, metres')
 
-    # Perform substitution `$find-pkg-share`
+    # `laser_max_range` is the *sensor* horizon: 3.5 m for the LDS-02 and for
+    # its Gazebo model.  What the mapper wants is a range *threshold* slightly
+    # below it, so that the no-return rays scan_preprocess.py reports at 20 m
+    # land above the threshold and are traced as free space rather than marked
+    # as obstacles.  The 0.1 m of headroom is applied here so that changing the
+    # arena's sensor horizon is a one-number edit.
+    rewritten_slam_params = RewrittenYaml(
+        source_file=slam_params_file,
+        param_rewrites={
+            'max_laser_range': PythonExpression(
+                ['str(float("', laser_max_range, '") - 0.10)']),
+        },
+        convert_types=True,
+    )
     slam_params_file_w_subst = ParameterFile(
-        slam_params_file,
+        rewritten_slam_params,
         allow_substs=True,
     )
     
-    start_async_slam_toolbox_node = LifecycleNode(
+    # A plain Node, not a LifecycleNode.  slam_toolbox 2.6.10 as shipped in
+    # Humble is not a managed node: `strings` finds no lifecycle symbol in
+    # async_slam_toolbox_node, it never advertises /slam_toolbox/change_state,
+    # and it starts mapping from its constructor.  The upstream
+    # online_async_launch.py launches it as a plain Node for the same reason.
+    #
+    # Driving a lifecycle handshake at it anyway - which is what this file used
+    # to do - left launch_ros blocked in an unbounded wait_for_service loop
+    # registered as a launch completion future.  Mapping still worked, so the
+    # only visible symptom was a launch that would not shut down cleanly on
+    # Ctrl-C, which is exactly the wrong thing to discover between runs on
+    # competition day.
+    start_async_slam_toolbox_node = Node(
         parameters=[
           slam_params_file_w_subst,
-          {
-            'use_lifecycle_manager': use_lifecycle_manager,
-            'use_sim_time': use_sim_time
-          }
+          {'use_sim_time': use_sim_time}
         ],
         package='slam_toolbox',
         executable='async_slam_toolbox_node',
@@ -59,45 +73,34 @@ def generate_launch_description():
         namespace=''
     )
 
-    configure_event = EmitEvent(
-        event=ChangeState(
-          lifecycle_node_matcher=matches_action(start_async_slam_toolbox_node),
-          transition_id=Transition.TRANSITION_CONFIGURE
-        ),
-        condition=IfCondition(AndSubstitution(autostart, NotSubstitution(use_lifecycle_manager)))
-    )
-
-    activate_event = RegisterEventHandler(
-        OnStateTransition(
-            target_lifecycle_node=start_async_slam_toolbox_node,
-            start_state="configuring",
-            goal_state="inactive",
-            entities=[
-                LogInfo(msg="[LifecycleLaunch] Slamtoolbox node is activating."),
-                EmitEvent(event=ChangeState(
-                    lifecycle_node_matcher=matches_action(start_async_slam_toolbox_node),
-                    transition_id=Transition.TRANSITION_ACTIVATE
-                ))
-            ]
-        ),
-        condition=IfCondition(AndSubstitution(autostart, NotSubstitution(use_lifecycle_manager)))
-    )
-
-    laser_filter = Node(
-        package="laser_filters",
-        executable="scan_to_scan_filter_chain",
-        parameters=[slam_params_file_w_subst],
+    # Everything downstream - slam_toolbox and both Nav2 costmaps - reads
+    # /scan_filtered rather than /scan, so this node is on the critical path
+    # for the whole stack.  See scan_preprocess.py for why it exists: without
+    # it the map does not grow into open space and exploration stops before it
+    # starts.  It replaces the laser_filters chain that used to sit here, which
+    # cannot rewrite range_max and so cannot express "no return" in the one way
+    # Karto will accept.
+    #
+    # use_sim_time matters: without it this runs on the wall clock while
+    # everything around it runs on the Gazebo clock, and /scan_filtered arrives
+    # with timestamps slam_toolbox cannot match.
+    scan_preprocess = Node(
+        package='asr_summer_school',
+        executable='scan_preprocess.py',
+        name='scan_preprocess',
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'sensor_max_range': laser_max_range,
+        }],
     )
 
     ld = LaunchDescription()
 
-    ld.add_action(declare_autostart_cmd)
-    ld.add_action(declare_use_lifecycle_manager)
     ld.add_action(declare_use_sim_time_argument)
     ld.add_action(declare_slam_params_file_cmd)
+    ld.add_action(declare_laser_max_range_cmd)
     ld.add_action(start_async_slam_toolbox_node)
-    ld.add_action(laser_filter)
-    ld.add_action(configure_event)
-    ld.add_action(activate_event)
+    ld.add_action(scan_preprocess)
 
     return ld
