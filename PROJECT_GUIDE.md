@@ -446,42 +446,49 @@ lane in a 1 m corridor, and that every parameter any of our nodes reads is also 
       RUNBOOK.md         pre-flight checklist and diagnosis table
       setup_env.sh       environment setup: sim | onboard <n> | <n>
       asr_summer_school/ our package — all our code is here
-      laser_filters/     submodule, do not edit (no longer in the pipeline)
-      turtlebot3_perception/    submodule, do not edit
-      turtlebot3_simulations/   submodule, do not edit
+      VENDORED.md        upstreams and pinned commits for the three below
+      laser_filters/     vendored upstream, do not edit (no longer in the pipeline)
+      turtlebot3_perception/    vendored upstream, do not edit
+      turtlebot3_simulations/   vendored upstream, do not edit
     third_party/         vendored apriltag stack, builds with the workspace
 ~/asr_mission_output/
   example_sim_run/       a complete set of deliverables from a scored run
 ```
 
-Changes inside the submodules are lost on the next `git pull`. All our code goes in
-`asr_summer_school`.
+All our code goes in `asr_summer_school`. The other four directories are upstream code,
+checked in rather than referenced as submodules so that a single `git clone` gives a
+teammate a workspace that builds — verified by cloning this repository from scratch and
+building all ten packages in 53 seconds. **Do not edit them**; `VENDORED.md` records where
+each came from and how to take an update.
 
 ### Git
 
-Both repositories are committed on a branch named **`asr-mission`**, working trees clean.
-Nothing has been pushed.
+**One repository.** `github.com/yousefh112/ASR_YLS`, branch `main`. A teammate needs:
 
 ```bash
-# the outer repo
-cd ~/ASR_YLS && git log --oneline -3
-
-# the challenge repo, where the code lives
-cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge && git log --oneline -3
+git clone https://github.com/yousefh112/ASR_YLS.git ~/ASR_YLS
+cd ~/ASR_YLS/ros2_ws && colcon build --symlink-install && source install/setup.bash
 ```
 
-To put the work on `main` when you are happy with it:
+That is the whole setup. No `--recurse-submodules`, no submodule init, nothing to forget.
 
-```bash
-cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge
-git checkout main && git merge asr-mission
+It did not used to be. The challenge code lived in a second git repository nested inside
+this one, recorded only as a commit hash with no `.gitmodules` mapping — and those commits
+existed on one laptop and nowhere else, because its `origin` is the course's repository,
+which we cannot push to. Cloning this project gave you an **empty** directory and a
+`git submodule status` that failed. None of the mission code reached anyone.
 
-cd ~/ASR_YLS
-git checkout main && git merge asr-mission
-```
+It is now absorbed into this repository as tracked content, with its commit history
+preserved through `git subtree`, and the three upstream packages it referenced
+(`laser_filters`, `turtlebot3_perception`, `turtlebot3_simulations` — 3.4 MB together) are
+checked in beside it. `VENDORED.md` records the upstream URL and pinned commit for each,
+so taking an update is still a reviewable diff.
 
-Note that the challenge repo's `origin` is the course's own GitHub repository, which you
-almost certainly cannot push to. To keep a backup, add your own fork as a second remote.
+Verified by cloning this repository into an empty directory and building all ten packages
+from nothing in 53 seconds, then running the 72 offline tests in the clone.
+
+Bundles of both repositories as they were before the restructuring are in
+`~/ASR_YLS_backup/`, in case anything needs to be recovered.
 
 ---
 

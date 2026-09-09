@@ -107,10 +107,12 @@ not development.**
 
 ## 5. Setup
 
+Everything is in one repository. A plain clone produces a workspace that builds — no
+`--recurse-submodules`, nothing to initialise, nothing to forget on the day of the run.
+
 ```bash
-mkdir -p ~/ros_ws/src && cd ~/ros_ws/src
-git clone --recurse-submodules https://github.com/SESASR-Course/asr_summer_school_challenge.git
-cd ~/ros_ws
+git clone https://github.com/yousefh112/ASR_YLS.git ~/ASR_YLS
+cd ~/ASR_YLS/ros2_ws
 rosdep install --from-path src --ignore-src -y
 
 # rosdep will NOT pull these, package.xml under-declares them
@@ -131,8 +133,7 @@ them.
 Pull every morning:
 
 ```bash
-cd ~/ros_ws/src/asr_summer_school_challenge
-git pull && git submodule update --init --recursive
+cd ~/ASR_YLS && git pull
 ```
 
 ### The simulated arena
@@ -173,14 +174,19 @@ One cell 3.2-4.2 V, 3S 9.6-12.6 V, 4S 12.8-16.8 V. NUC runs 15-19 V from 4S, Ope
 ros2_ws/src/
   asr_summer_school_challenge/
     asr_summer_school/        the only package authored for this challenge
-    laser_filters/            submodule, do not edit.  No longer in the pipeline
-    turtlebot3_perception/    submodule, do not edit
-    turtlebot3_simulations/   submodule, do not edit
+    laser_filters/            vendored, do not edit.  No longer in the pipeline
+    turtlebot3_perception/    vendored, do not edit
+    turtlebot3_simulations/   vendored, do not edit
     RUNBOOK.md                how to run it
+    VENDORED.md               upstreams and pinned commits for the three above
   third_party/                vendored apriltag stack, built from source
 ```
 
-Changes inside submodules are lost on the next pull. All our code goes in `asr_summer_school`.
+All our code goes in `asr_summer_school`. The other four directories are upstream code,
+checked in rather than referenced as submodules so that one `git clone` gives a teammate a
+workspace that builds. That used to be enforced by edits being lost on the next `git pull`;
+now it is only a convention, so: **do not edit them.** `VENDORED.md` records where each
+came from and how to take an update as a reviewable diff.
 
 ### Launch files
 
@@ -292,7 +298,7 @@ four required variables up front.
   50 offline tests run in under a second.
 - Use `BasicNavigator` for goal dispatch. Call `waitUntilNav2Active(localizer='controller_server')`,
   **not** the default, because we run SLAM and there is no AMCL.
-- Never edit the submodules.
+- Never edit the vendored upstream packages.  See `VENDORED.md`.
 - Build with `--symlink-install` so Python edits apply without rebuilding.
 - Run the offline tests after any change to the mission logic.
 
