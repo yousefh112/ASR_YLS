@@ -20,7 +20,9 @@ _REQUIRED_ENV = {
     'LDS_MODEL': ('LDS-01', 'LDS-02', 'LDS-03'),
     # camera.launch.py matches on this: unset raises KeyError, and a value it
     # does not recognise silently starts nothing at all, which looks exactly
-    # like a camera that failed to enumerate on USB.
+    # like a camera that failed to enumerate on USB.  Our robot is fitted with
+    # the RealSense; 'oakd' stays accepted because the course's launch file
+    # supports it, not because we expect to need it.
     'CAMERA_MODEL': ('realsense', 'oakd'),
 }
 
@@ -44,7 +46,7 @@ def _check_environment(context, *args, **kwargs):
                'Set them before launching, for example:',
                '  export TURTLEBOT3_MODEL=burger',
                '  export LDS_MODEL=LDS-02',
-               '  export CAMERA_MODEL=realsense   # or oakd',
+               '  export CAMERA_MODEL=realsense   # what our robot has',
                ''])),
                 Shutdown(reason='required environment variables are missing')]
     return [LogInfo(msg='environment OK: {}'.format(

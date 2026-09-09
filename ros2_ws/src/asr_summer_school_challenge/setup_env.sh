@@ -45,11 +45,11 @@ case "${1:-}" in
     export ROS_DOMAIN_ID="$2"
     # No client override: this machine hosts the router.
     unset ZENOH_CONFIG_OVERRIDE
+    # Our robot has the RealSense.  Set CAMERA_MODEL before sourcing only if
+    # you are ever on a machine fitted with the OAK-D instead.
     : "${CAMERA_MODEL:=realsense}"
     export CAMERA_MODEL
     echo "ASR environment: ON ROBOT $2"
-    echo "  CAMERA_MODEL is ${CAMERA_MODEL}; export it before sourcing if the"
-    echo "  robot has an OAK-D instead."
     ;;
   [0-9]|[0-9][0-9])
     export RMW_IMPLEMENTATION=rmw_zenoh_cpp

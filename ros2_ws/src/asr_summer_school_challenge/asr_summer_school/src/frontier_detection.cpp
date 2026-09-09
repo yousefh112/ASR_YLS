@@ -184,16 +184,32 @@ nav_msgs::msg::OccupancyGrid preprocess_frontier_cells(
       const int nx = x + dx_table[i];
       const int ny = y + dy_table[i];
 
-      if (nx < 0 || nx >= width_cells || ny < 0 || ny >= height_cells)
-        continue;
-
-      const int nindex = ny * width_cells + nx;
-      if (visited[nindex])
-        continue;
-
       const double nx_dist = (nx - rx) * res;
       const double ny_dist = (ny - ry) * res;
       if (nx_dist * nx_dist + ny_dist * ny_dist > sq_radius)
+        continue;
+
+      // Off the edge of the grid is unknown territory, and a free cell sitting
+      // against that edge is a frontier just as surely as one beside an
+      // unknown cell.  Skipping the out-of-bounds neighbour instead - which is
+      // what this used to do - makes the whole map border invisible to the
+      // search.
+      //
+      // That is not a corner case here.  Karto sizes the occupancy grid to the
+      // bounding box of the scan *endpoints*, which excludes the no-return
+      // rays, while it happily rasters those rays as free space out to the
+      // range threshold.  Free space is therefore routinely clipped at the
+      // grid boundary with no unknown margin beyond it.  A robot in open space
+      // then finds no frontier at all, reports the arena explored and drives
+      // home: observed with 87% of a 4 x 3.5 m map known and the whole rest of
+      // a 20 x 20 m arena unvisited.
+      if (nx < 0 || nx >= width_cells || ny < 0 || ny >= height_cells) {
+        is_frontier = true;
+        continue;
+      }
+
+      const int nindex = ny * width_cells + nx;
+      if (visited[nindex])
         continue;
 
       if (map_grid.data[nindex] == -1) {

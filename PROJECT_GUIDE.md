@@ -10,7 +10,7 @@ final run. If you only read one section, read [Quick start](#2-quick-start) and
 - [2. Quick start](#2-quick-start)
 - [3. What the robot actually does](#3-what-the-robot-actually-does)
 - [4. The code](#4-the-code)
-- [5. The three problems that decided whether any of this worked](#5-the-three-problems-that-decided-whether-any-of-this-worked)
+- [5. What went wrong, and why it was hard to see](#5-what-went-wrong-and-why-it-was-hard-to-see)
 - [6. What comes out of a run](#6-what-comes-out-of-a-run)
 - [7. Before the real run](#7-before-the-real-run)
 - [8. When something goes wrong](#8-when-something-goes-wrong)
@@ -110,9 +110,11 @@ ros2 run rmw_zenoh_cpp rmw_zenohd            # leave this terminal running
 terminals:
 
 ```bash
-export CAMERA_MODEL=oakd     # ONLY if it is not a RealSense
 source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard <robot number>
 ```
+
+`CAMERA_MODEL=realsense` is the default and is what our robot has. The launch
+still supports `oakd`, but nothing needs changing for us.
 
 ```bash
 # terminal 1 — base, LiDAR, camera, AprilTag, SLAM, frontier detector.  No Nav2.
@@ -179,7 +181,7 @@ again rather than declare the arena explored — a run that banned its last fron
 home with 5 % of the arena mapped.
 
 **RETURN.** Drive to the recorded start pose, up to three attempts, clearing costmaps
-between them. If SLAM was seen to jump (see [§5](#5-the-three-problems-that-decided-whether-any-of-this-worked)),
+between them. If SLAM was seen to jump (see [§5](#5-what-went-wrong-and-why-it-was-hard-to-see)),
 aim at the odometry anchor instead.
 
 **FINALIZE.** Write everything, from a `finally` block, so it happens whatever went wrong
@@ -212,17 +214,22 @@ Everything we wrote is in
 | `asr_summer_school/map_recorder.py` | Holds the newest `/map` |
 | `asr_summer_school/geometry.py` | Rigid transforms. **No rclpy** |
 | `asr_summer_school/score_report.py` | Scores a finished run offline against the world file's ground truth |
+| `asr_summer_school/preflight.py` | Checks the whole stack in one command before a run |
 | `config/param_mission.yaml` | Every mission tunable, each with a comment saying what it trades off |
 | `launch/mission.launch.py` | Nav2 + the orchestrator. **This is the one you run** |
 | `setup_env.sh` | `sim` / `onboard <n>` / `<n>` environment setup |
 | `RUNBOOK.md` | Pre-flight checklist and diagnosis table |
 
 Anything that can be tested without a running graph does not import rclpy. That is what
-lets 72 tests run in half a second on a laptop with nothing sourced.
+lets 72 tests run in half a second on a laptop with nothing sourced. Six more are C++
+gtest cases over the frontier search, run by `colcon test`.
 
 ---
 
-## 5. The three problems that decided whether any of this worked
+## 5. What went wrong, and why it was hard to see
+
+Every item here was silent. None produced an error; each produced a run that
+finished cleanly with a low score, which is the expensive kind of bug.
 
 ### 5.1 `inf` is not "nothing there" to the mapper
 
@@ -278,17 +285,46 @@ published `range_max` to **25 m**. That threads three needles at once:
 Drift went from 6 m to **5 cm**. Do not change those three numbers without reading the
 header of `scan_preprocess.py`, which carries the full derivation.
 
-### 5.3 The simulated camera was not in the TF tree at all
+### 5.3 The map's own edge was invisible to the frontier search
 
-The burger URDF that `robot_state_publisher` loads has **no camera link**. The camera
-exists only in the Gazebo SDF. So `camera_rgb_frame` — the frame `apriltag_ros` parents
-every tag to — was never connected to the robot, and every map-frame tag lookup failed
-with "frame does not exist". Tags were detected correctly and then thrown away.
+`preprocess_frontier_cells` skipped neighbours outside the grid, so a free cell
+against the map boundary was never counted as a frontier — though what lies past
+the edge is by definition unobserved.
 
-Fixed with two static transform publishers in `bringup_simulation.launch.py`, with the
-offset read straight out of `models/turtlebot3_burger/model.sdf`.
+That matters because of how Karto sizes the grid: to the bounding box of the scan
+*endpoints*, which excludes the no-return rays, while still rastering those rays as
+free space out to the range threshold. Free space is therefore routinely clipped at
+the boundary with no unknown margin beyond it, and a robot in open space finds no
+frontier at all.
 
-### 5.4 Everything else that was wrong
+Measured: 87% of a 4 × 3.5 m map known, the other 396 m² of the arena never visited,
+`exploration complete` logged after two goals. Treating out-of-bounds as unknown took
+the same 300 s mission from 1 tag and 2 goals to **3 tags and 9 goals**. Guarded by
+`test/test_frontier_detection.cpp`.
+
+### 5.4 A camera transform we added and did not need
+
+Recorded because it was our own mistake, and the shape of it recurs.
+
+`turtlebot3_description`'s burger URDF has no camera link, so `camera_rgb_frame` — the
+frame `apriltag_ros` parents every tag to — looked absent from TF, and
+`bringup_simulation.launch.py` grew two static transform publishers to supply it,
+with offsets read out of the Gazebo SDF.
+
+That was the wrong file. `robot_state_publisher` in this workspace loads
+`turtlebot3_gazebo/urdf/turtlebot3_burger.urdf`, which already carries the whole
+chain: `base_link → camera_link → camera_rgb_frame → camera_rgb_optical_frame`.
+
+So the publishers gave `camera_rgb_frame` a **second parent**, with an offset 2.3 cm
+out in z and 1.8 cm out in y. tf2 does not warn about a reparent; it serves whichever
+transform arrived last. The camera pose was silently non-deterministic — on a quantity
+the rubric scores to 15 cm. Both publishers have been removed and the chain verified
+single-parented.
+
+The lesson worth keeping: check which file is actually loaded before concluding a frame
+is missing, and trust `ros2 run tf2_ros tf2_echo` over reading a URDF.
+
+### 5.5 Everything else that was wrong
 
 All fixed; the list is kept because each one will look like something else when it
 reappears. Full detail in [`CLAUDE.md` §8](CLAUDE.md).
@@ -375,19 +411,32 @@ Everything else lives in `config/param_mission.yaml` with a comment saying what 
 off. If the tag count is low and there is time to spare, `scan_rotation` and
 `scan_rotation_min_slack` control the camera sweep at each frontier.
 
-### Five-minute pre-flight
+### Pre-flight
 
-- [ ] Batteries. LiPo: 3S is 9.6–12.6 V, 4S is 12.8–16.8 V. Below minimum destroys the pack
-- [ ] `ros2 topic hz /scan` — about 5 Hz
-- [ ] `ros2 topic hz /scan_filtered` — same rate. **If this is silent, SLAM and both costmaps are blind**
-- [ ] `ros2 topic hz /camera/*/image_raw` — the camera enumerated
-- [ ] `ros2 topic echo /camera/detections --once` with a tag in view
-- [ ] `ros2 run tf2_ros tf2_echo map base_footprint` — SLAM is publishing
-- [ ] `ros2 param get /behavior_server behavior_plugins` — recoveries configured
-- [ ] `ros2 topic echo /frontier_centroids --once` — the detector is producing targets
-- [ ] Drive it a metre with the pad and watch the map in RViz before starting
+One command, after the bringup:
 
----
+```bash
+ros2 run asr_summer_school preflight.py            # after bringup
+ros2 run asr_summer_school preflight.py --nav2     # after the mission too
+```
+
+It samples every topic the mission consumes with the QoS the publisher actually uses,
+walks the TF chain, and checks the invariants that fail silently — the no-return
+encoding localisation depends on, whether the colour camera frame is reachable from
+`map`, whether the frontier detector is producing anything at all. Each failure prints
+what to do about it, and the exit status is 0 only when nothing failed.
+
+Every check corresponds to something that actually broke while this was being built.
+
+Two things it cannot check:
+
+- [ ] **Batteries.** LiPo: 3S is 9.6–12.6 V, 4S is 12.8–16.8 V. Below minimum destroys
+      the pack.
+- [ ] **Hold a tag36h11 in front of the camera and re-run.** It warns rather than fails
+      with no tag in view, because that is normal — but it is the only end-to-end
+      confirmation of the detection path.
+
+Then drive it a metre with the pad and watch the map in RViz.
 
 ## 8. When something goes wrong
 
@@ -395,6 +444,7 @@ off. If the tag count is low and there is time to spare, `scan_rotation` and
 |---|---|---|
 | `ros2 topic list` empty | Middleware mismatch, or a stale daemon | Check `RMW_IMPLEMENTATION` on **both** ends; `pkill -9 -f ros && ros2 daemon stop` |
 | "exploration complete" within seconds | `/frontier_centroids` silent, or every centroid rejected | The mission logs the reason. `ros2 topic echo /frontier_centroids --once` |
+| Exploration stops early, map is a small box | The frontier search found nothing. Run `preflight.py` — it reports the centroid count |
 | Map stops growing / robot explores a 4 m box | `/scan_filtered` dead | `ros2 topic hz /scan_filtered`; check the bringup log for a `scan_preprocess` traceback. The whole stack reads that topic |
 | Map smears, walls double | False loop closure | The mission logs `SLAM moved the map by ...`. See below |
 | Tag IDs right, positions nonsense | Optical-frame convention | `tag_manager` logs which frame it parented to and whether it corrected. Force with `optical_correction:=on\|off` |
@@ -419,14 +469,22 @@ re-optimisation. `mission_report.json` records every jump under `map_jumps`.
 
 ## 9. Tests
 
-72 offline tests, no ROS and no simulator, under a second:
+**72 Python tests**, no ROS and no simulator, in under a second:
 
 ```bash
 python3 -m pytest ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/asr_summer_school/test -q
 ```
 
-They cover the exploration policy, tag fusion, the deadline budget, the export formats,
-the scan-range invariants localisation depends on, and a set of configuration checks that
+plus **6 C++ gtest cases** over the frontier search, run by `colcon test`:
+
+```bash
+cd ~/ASR_YLS/ros2_ws && colcon test --packages-select asr_summer_school \
+  && colcon test-result --test-result-base build/asr_summer_school
+```
+
+Together they cover the exploration policy, tag fusion, the deadline budget, the export
+formats, the scan-range invariants localisation depends on, the frontier search's
+boundary handling, and a set of configuration checks that
 would have caught several of the defects above — that every managed Nav2 node can be told
 the clock, that the costmaps read the same scan the mapper does, that inflation leaves a
 lane in a 1 m corridor, and that every parameter any of our nodes reads is also declared.
@@ -497,5 +555,4 @@ Bundles of both repositories as they were before the restructuring are in
 1. **Semantic map format.** Worth +100 and specified nowhere. We export YAML, JSON and CSV
    to cover it, but ask. Highest priority.
 2. The deadline duration for the final run, and the physical arena layout.
-3. Which camera is fitted — RealSense or OAK-D.
-4. Our robot number, which sets both `ROS_DOMAIN_ID` and the NUC address.
+3. Our robot number, which sets both `ROS_DOMAIN_ID` and the NUC address.

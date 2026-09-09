@@ -20,7 +20,7 @@ AprilTags (tag36h11) as possible. Associate each with its unique ID and its posi
 frame. Produce a 2D occupancy grid and a semantic map. Avoid obstacles. Return to the starting
 position within 50 cm before the deadline.
 
-Robot: TurtleBot3 Burger. LDS-02 2D LiDAR, RGB-D camera (RealSense or OAK-D), OpenCR board for
+Robot: TurtleBot3 Burger. LDS-02 2D LiDAR, **Intel RealSense** RGB-D camera, OpenCR board for
 motors, IMU, encoders and battery, Intel NUC as robot PC. Middleware is `rmw_zenoh_cpp`, not the
 Fast DDS default.
 
@@ -209,10 +209,12 @@ came from and how to take an update as a reviewable diff.
 
 ---
 
-## 8. Defects found in the provided material
+## 8. Defects found, and one we caused
 
-Ordered by what they cost. Everything here is **fixed**; the list stays because each one is a trap
-that will look like something else when it reappears.
+Mostly in the provided material; item 3 was ours, and is kept for the same reason as the rest.
+Ordered by what they cost. Everything here is **fixed**; the list stays because each one is a
+trap that will look like something else when it reappears, and because every one of them was
+silent — none produced an error, each produced a run that finished cleanly with a low score.
 
 **1. `inf` is not "nothing there" to Karto.** *This was the difference between a working system and
 a broken one.* The LiDAR reports `inf` for a ray that hits nothing within range.
@@ -233,58 +235,79 @@ with `range_max` raised above it — inside `range_max` so the grid traces it, a
 nothing is marked, and far outside the correlation grid so the matcher never sees it. Read the top
 of `scan_preprocess.py` before touching those numbers.
 
-**3. No camera in the simulated TF tree.** The burger URDF `robot_state_publisher` loads has no
-camera link, so `camera_rgb_frame` — the frame `apriltag_ros` parents every tag to — was never
-connected to the robot. Tags were detected and every map-frame lookup then failed. Two static
-publishers in `bringup_simulation.launch.py`, offsets read out of the SDF.
+**3. Free space at the edge of the map was invisible to the frontier search.**
+`preprocess_frontier_cells` skipped any neighbour outside the grid, so a free cell pressed
+against the map boundary was never a frontier - even though what lies past the edge is by
+definition unobserved. That is not a corner case: Karto sizes the occupancy grid to the
+bounding box of the scan *endpoints*, which excludes the no-return rays, while happily
+rastering those same rays as free space out to the range threshold. Free space is therefore
+routinely clipped at the boundary with no unknown margin beyond it. A robot in open space
+then finds no frontier at all. Measured: 87% of a 4 x 3.5 m map known, the other 396 m² of
+the arena never visited, "exploration complete" logged after two goals. Fixing it took a
+300 s run from 1 tag and 2 goals to **3 tags and 9 goals**. Guarded now by
+`test/test_frontier_detection.cpp`.
 
-**4. False loop closures teleport the map.** A maze of parallel corridors seen through a 3.5 m
+**4. A camera transform we added and did not need.** *Recorded because it was our own
+mistake, and because the shape of it recurs.* `turtlebot3_description`'s burger URDF has no
+camera link, so `camera_rgb_frame` — the frame `apriltag_ros` parents every tag to — looked
+absent, and `bringup_simulation.launch.py` grew two static transform publishers to supply it.
+But `robot_state_publisher` in this workspace loads
+`turtlebot3_gazebo/urdf/turtlebot3_burger.urdf`, a *different file*, which carries the whole
+chain already: `base_link -> camera_link -> camera_rgb_frame -> camera_rgb_optical_frame`.
+
+The publishers therefore gave `camera_rgb_frame` a second parent with an offset 2.3 cm out in
+z and 1.8 cm out in y. tf2 does not warn about a reparent — it serves whichever arrived last —
+so the camera pose was silently non-deterministic, on a quantity scored to 15 cm. Both
+publishers are gone. **Check which file is actually loaded before concluding a frame is
+missing**, and prefer `ros2 run tf2_ros tf2_echo` over reading a URDF.
+
+**5. False loop closures teleport the map.** A maze of parallel corridors seen through a 3.5 m
 sensor is exactly the geometry that produces them. One moved the pose 3 m and 24° in a single graph
 optimisation, and the robot then drove "home" to a point 0.84 m from the real start — outside the
 50 cm circle, so 150 points gone. Loop closure thresholds are now deliberately stricter than the
 slam_toolbox defaults, and `mission_control` watches `map→odom` for the discontinuity and falls back
 to an odometry anchor for the return.
 
-**5. Frontier search radius was pinned to the sensor horizon.** The detector flood-fills through
+**6. Frontier search radius was pinned to the sensor horizon.** The detector flood-fills through
 *known free space*, so capping it at 3.5 m made the robot short-sighted: as soon as its immediate
 pocket was mapped it reported no frontiers and went home. Now 30 m, which is a different concern
 from the sensor horizon and is now configured separately.
 
-**6. Exploration gave up after three seconds.** Patience was counted in state-machine ticks, and
+**7. Exploration gave up after three seconds.** Patience was counted in state-machine ticks, and
 eight ticks at 0.4 s is what a map looks like immediately after startup. Now measured in seconds and
 backed by recovery spins. A bootstrap rotation also seeds the map before the first frontier query.
 
-**7. A single planner refusal blacklisted a frontier permanently.** Early in a run the costmap
+**8. A single planner refusal blacklisted a frontier permanently.** Early in a run the costmap
 between the robot and a frontier is mostly unknown and "no path" means "not yet". Planner refusals
 are now counted separately from drive failures and their ban expires.
 
-**8. `param_nav2.yaml` had no `smoother_server` or `velocity_smoother` section.** Both are
+**9. `param_nav2.yaml` had no `smoother_server` or `velocity_smoother` section.** Both are
 lifecycle-managed, so both silently ran on the wall clock in simulation, and `velocity_smoother` —
 which sits in the `cmd_vel` path to the wheels — clamped to a generic robot's 0.5 m/s instead of the
 burger's 0.22.
 
-**9. Inflation radius was 1.0 m locally, 0.55 m globally.** In a 1 m corridor either leaves no
+**10. Inflation radius was 1.0 m locally, 0.55 m globally.** In a 1 m corridor either leaves no
 zero-cost cell between the walls, so the gradient the controller steers down is flat. Both 0.28 m.
 
-**10. Both costmaps ran `obstacle_layer` and `voxel_layer` on the same `/scan`** — every ray marked
+**11. Both costmaps ran `obstacle_layer` and `voxel_layer` on the same `/scan`** — every ray marked
 and raytraced twice for identical results.
 
-**11. `slam_toolbox.launch.py` drove a lifecycle handshake at a node that is not a lifecycle node**
+**12. `slam_toolbox.launch.py` drove a lifecycle handshake at a node that is not a lifecycle node**
 in Humble, leaving launch blocked in an unbounded `wait_for_service` loop. Mapping worked, so the
 only symptom was a launch that would not shut down cleanly — which is the wrong thing to discover
 between runs on competition day.
 
-**12. A missing `joy_linux` aborted the entire bringup**, taking SLAM and perception with it.
+**13. A missing `joy_linux` aborted the entire bringup**, taking SLAM and perception with it.
 Teleop is now conditional.
 
-**13. `behavior_server` read `transform_timeout`**; Humble declares `transform_tolerance`. Plus
+**14. `behavior_server` read `transform_timeout`**; Humble declares `transform_tolerance`. Plus
 `enable_groot_monitoring` and eight Foxy-era node sections that no Humble node answers to.
 
-**14. `camera.launch.py` reads `CAMERA_MODEL` with a bare dict lookup** — unset throws a `KeyError`
+**15. `camera.launch.py` reads `CAMERA_MODEL` with a bare dict lookup** — unset throws a `KeyError`
 from inside a submodule, a wrong value silently starts nothing. `bringup.launch.py` now checks all
 four required variables up front.
 
-**15. `package.xml` under-declares runtime dependencies.** See the apt list in section 5.
+**16. `package.xml` under-declares runtime dependencies.** See the apt list in section 5.
 
 ---
 
@@ -295,7 +318,8 @@ four required variables up front.
   `ament_cmake`, not `ament_python`, despite what the README says.
 - Logic that can be tested without a graph should not import rclpy. `frontier_policy`,
   `tag_map`, `mission_clock`, `geometry`, `map_export` and `score_report` all follow this, and the
-  50 offline tests run in under a second.
+  72 offline tests run in under a second.  The frontier search is C++ and is covered by
+  `test/test_frontier_detection.cpp`, run with `colcon test`.
 - Use `BasicNavigator` for goal dispatch. Call `waitUntilNav2Active(localizer='controller_server')`,
   **not** the default, because we run SLAM and there is no AMCL.
 - Never edit the vendored upstream packages.  See `VENDORED.md`.
@@ -307,5 +331,4 @@ four required variables up front.
 1. **Semantic map format.** Worth +100 and specified nowhere. We export YAML, JSON and CSV to cover
    it, but ask. Highest priority.
 2. Deadline duration for the final run, and the physical arena layout.
-3. Which camera is fitted, RealSense or OAK-D.
-4. Our robot number, which sets both `ROS_DOMAIN_ID` and the NUC address.
+3. Our robot number, which sets both `ROS_DOMAIN_ID` and the NUC address.

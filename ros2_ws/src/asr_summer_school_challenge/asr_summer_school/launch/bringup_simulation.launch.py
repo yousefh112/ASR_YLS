@@ -40,47 +40,20 @@ def generate_launch_description():
 		launch_arguments={'use_sim_time': use_sim_time}.items()
 	)
 
-	# The simulated camera exists only in the Gazebo SDF.  The burger URDF that
-	# robot_state_publisher loads has no camera link at all, so nothing ever
-	# connects base_footprint to the frame the images are stamped with, and
-	# every map-frame tag lookup fails with "camera_rgb_frame does not exist".
-	# Without these two publishers the whole perception half of the mission is
-	# silently dead in simulation: apriltag_ros still broadcasts
-	# tag36h11:<id> off camera_rgb_frame, but that subtree is detached from
-	# the robot.
+	# No static camera transforms here on purpose.
 	#
-	# The offset is read straight out of models/turtlebot3_burger/model.sdf,
-	# where the camera_rgb_frame link sits at (-0.059, 0, 0.230) in the model
-	# frame with no rotation.  The model frame is base_footprint.
-	camera_tf = Node(
-		package='tf2_ros',
-		executable='static_transform_publisher',
-		name='camera_rgb_frame_tf',
-		output='log',
-		arguments=['--x', '-0.059', '--y', '0.0', '--z', '0.230',
-		           '--roll', '0.0', '--pitch', '0.0', '--yaw', '0.0',
-		           '--frame-id', 'base_footprint',
-		           '--child-frame-id', 'camera_rgb_frame'],
-		parameters=[{'use_sim_time': use_sim_time}],
-	)
-
-	# The optical frame every calibrated driver stamps: z forward, x right,
-	# y down.  Gazebo does not publish it, but rviz and anything that expects
-	# the REP-103 optical convention does, and it gives the mission stack the
-	# same frame name it will find on the robot.
-	camera_optical_tf = Node(
-		package='tf2_ros',
-		executable='static_transform_publisher',
-		name='camera_rgb_optical_frame_tf',
-		output='log',
-		arguments=['--x', '0.0', '--y', '0.0', '--z', '0.0',
-		           '--roll', '-1.5707963267948966',
-		           '--pitch', '0.0',
-		           '--yaw', '-1.5707963267948966',
-		           '--frame-id', 'camera_rgb_frame',
-		           '--child-frame-id', 'camera_rgb_optical_frame'],
-		parameters=[{'use_sim_time': use_sim_time}],
-	)
+	# turtlebot3_gazebo/urdf/turtlebot3_burger.urdf - the URDF that this
+	# package's own robot_state_publisher.launch.py loads, which is NOT the one
+	# in turtlebot3_description - already carries the whole chain:
+	#
+	#   base_link -> camera_link -> camera_rgb_frame -> camera_rgb_optical_frame
+	#
+	# so camera_rgb_frame, the frame apriltag_ros parents every tag to, is in TF
+	# from the moment the robot spawns.  Publishing it again from here gave that
+	# frame a second parent with a different offset (2.3 cm in z, 1.8 cm in y).
+	# tf2 does not warn about a reparent, it just serves whichever arrived last,
+	# so the camera pose silently became non-deterministic - and tag positions
+	# are scored to 15 cm.
 
 	apriltag = Node(
 		package='apriltag_ros',
@@ -154,8 +127,6 @@ def generate_launch_description():
 			description='Sensor horizon shared by SLAM and the frontier detector'),
 		slam_toolbox,
 		teleop,
-		camera_tf,
-		camera_optical_tf,
 		apriltag,
 		detection2landmark,
 		frontier_detection

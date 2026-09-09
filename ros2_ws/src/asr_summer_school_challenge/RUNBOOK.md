@@ -94,7 +94,6 @@ each other, and the symptom is an empty `ros2 topic list` rather than an error.
 ```bash
 ssh students@192.168.10.1<NN>                # password: sesasr
 
-export CAMERA_MODEL=oakd                     # ONLY if it is not a RealSense
 source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard <robot number>
 ```
 
@@ -135,22 +134,35 @@ start point and leave it: touching it costs 50 points.
 once. The export runs from a `finally` block, so the map and the semantic map
 are written even on an interrupt. Two Ctrl-Cs kill it before that.
 
-### 3.3 The five-minute pre-flight
+### 3.3 Pre-flight
 
-- [ ] Batteries checked. LiPo, 3S is 9.6–12.6 V, 4S is 12.8–16.8 V. Below
-      minimum destroys the pack.
-- [ ] `ros2 topic hz /scan` — about 5 Hz
-- [ ] `ros2 topic hz /scan_filtered` — the same rate. If this is silent, SLAM
-      and both costmaps are blind.
-- [ ] `ros2 topic hz /camera/*/image_raw` — the camera enumerated
-- [ ] `ros2 topic echo /camera/detections --once` with a tag in view
-- [ ] `ros2 run tf2_ros tf2_echo map base_footprint` — SLAM is publishing
-- [ ] `ros2 param get /behavior_server behavior_plugins` — recoveries configured
-- [ ] `ros2 topic echo /frontier_centroids --once` — the detector is producing
-      targets
-- [ ] Drive it a metre with the pad and watch the map in RViz before starting
+One command, run after the bringup:
 
----
+```bash
+ros2 run asr_summer_school preflight.py            # after bringup
+ros2 run asr_summer_school preflight.py --nav2     # after the mission too
+```
+
+It samples every topic the mission consumes with the QoS the publisher actually
+uses, walks the TF chain, and checks the invariants that fail silently — the
+no-return encoding localisation depends on, whether the colour camera frame is
+reachable from `map`, whether the frontier detector is producing anything. Each
+failure prints what to do about it. Exit status is 0 when nothing failed, so it
+can gate a script.
+
+Every check in it corresponds to something that actually broke during
+development, and every one of those was silent: a dead scan preprocessor still
+leaves a healthy `/scan`, a detached camera frame still produces detections.
+
+Two things it cannot check, so check them yourself:
+
+- [ ] **Batteries.** LiPo: 3S is 9.6–12.6 V, 4S is 12.8–16.8 V. Below minimum
+      destroys the pack.
+- [ ] **Hold a tag in front of the camera and re-run.** `preflight` warns rather
+      than fails when no tag is in view, because that is normal — but it is the
+      only way to confirm the whole detection path end to end before a run.
+
+Then drive it a metre with the pad and watch the map in RViz.
 
 ## 4. What comes out
 
@@ -264,12 +276,14 @@ mission logic at all. This is what fills that gap.
 
 ### The three defects that decided whether this worked at all
 
-**1. No camera in the simulated TF tree.** The burger URDF that
-`robot_state_publisher` loads has no camera link, so `camera_rgb_frame` — the
-frame `apriltag_ros` parents every tag to — was never connected to the robot.
-Tags were detected and then every map-frame lookup failed. Two static
-publishers in `bringup_simulation.launch.py`, with the offset read out of the
-SDF, fix it.
+**1. Camera frames come from the URDF, not from us.** `robot_state_publisher` loads
+`turtlebot3_gazebo/urdf/turtlebot3_burger.urdf` — not the one in
+`turtlebot3_description`, which has no camera link — and that file already
+provides `base_link -> camera_link -> camera_rgb_frame ->
+camera_rgb_optical_frame`. Do not add static publishers for these: a second
+parent for `camera_rgb_frame` makes the camera pose non-deterministic and tf2
+does not warn about it. `preflight.py` checks the colour frame is reachable
+from `map`.
 
 **2. `inf` is not "nothing there" to Karto.** The LiDAR reports `inf` for a ray
 that hits nothing within range. Karto's `OccupancyGrid::AddScan` discards any
