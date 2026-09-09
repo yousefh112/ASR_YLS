@@ -1,5 +1,12 @@
 # ASR Summer School: Search-and-Rescue Challenge
 
+> **This is the course's original README, kept for the activity description.**
+> Our own documentation is [`RUNBOOK.md`](RUNBOOK.md) (what to run),
+> [`../../../PROJECT_GUIDE.md`](../../../PROJECT_GUIDE.md) (how it works) and
+> [`../../../CLAUDE.md`](../../../CLAUDE.md) (the brief and every defect found).
+> Statements below about the software have been corrected where the stack has
+> since changed; the sections describing the *challenge* are untouched.
+
 ## Activity overview
 
 This repository supports a **search-and-rescue robotics laboratory** for master's students and early PhD students. The activity is carried out in teams using a TurtleBot3 Burger.
@@ -31,14 +38,16 @@ The ROS 2 workspace contains the following packages and support resources:
 src/asr_summer_school_challenge/
 ├── apriltag-imgs/           # AprilTag families and tag-to-SVG utility
 ├── asr_summer_school/       # Bringup, autonomy, launch, and configuration
-├── laser_filters/            # LiDAR filtering package
+├── laser_filters/            # LiDAR filtering package (vendored; no longer in the pipeline)
 ├── turtlebot3_perception/    # Camera, AprilTag, and landmark support
 └── turtlebot3_simulations/   # Fake node, Gazebo, and Ignition simulation
 ```
 
 ### `asr_summer_school`
 
-`asr_summer_school` is an `ament_cmake_python` ROS 2 package that collects the launch files, parameter sets, autonomy nodes, Python utilities, tests, and simulation assets used during the laboratory. Its `CMakeLists.txt` installs the `launch/` and `config/` directories into the package share directory.
+`asr_summer_school` is an `ament_cmake` ROS 2 package (not `ament_python` — every runnable
+Python node must be listed in `install(PROGRAMS ...)` in `CMakeLists.txt` or `ros2 run` will
+not find it) that collects the launch files, parameter sets, autonomy nodes, Python utilities, tests, and simulation assets used during the laboratory. Its `CMakeLists.txt` installs the `launch/` and `config/` directories into the package share directory.
 
 ```text
 asr_summer_school/
@@ -76,7 +85,11 @@ The package includes frontier detection, navigation and sensor-monitoring exampl
 
 - `bringup.launch.py` starts the TurtleBot3 base, SLAM, joystick teleoperation,  RGB-D camera, and AprilTag detector as one integrated system.
 - `bringup_simulation.launch.py` starts the corresponding simulation bringup.
-- `slam_toolbox.launch.py` starts asynchronous `slam_toolbox`, manages its lifecycle, and inserts a `laser_filters` scan-to-scan filter before SLAM.
+- `slam_toolbox.launch.py` starts asynchronous `slam_toolbox` and, ahead of it,
+  `scan_preprocess.py`, which republishes `/scan` as `/scan_filtered`.
+  *(Corrected: slam_toolbox is not a lifecycle node in Humble, so nothing manages its
+  lifecycle; and the `laser_filters` chain that used to sit here could not express "no
+  return" in a way Karto accepts — see PROJECT_GUIDE §5.)*
 - `nav2.launch.py` starts the Nav2 navigation stack. It supports mapping or localization, namespaces, composition, respawning, simulation time, and a custom parameter file.
 - `project.launch.py` starts the project-specific laboratory configuration in Gazebo Classic, on the `hard_maze_apriltag.world` maze.
 - `project_ignition.launch.py` starts the same maze under Ignition/gz, on `hard_maze_apriltag_ignition.world`. It goes through `turtlebot3_ignition`, so remove that package's `COLCON_IGNORE` and rebuild before using it.
@@ -104,7 +117,11 @@ The package also contains `frontier_detection`, its ROS 2 node entry point, Pyth
 
 ### Supporting packages
 
-- `laser_filters` provides the filter chain used to preprocess LiDAR scans. In the supplied SLAM configuration, scans are binned and published on `/scan_filtered` before being consumed by `slam_toolbox`.
+- `laser_filters` is still built but is **no longer in the pipeline**.
+  `asr_summer_school/scan_preprocess.py` publishes `/scan_filtered` instead, because the
+  encoding of a no-return ray has to satisfy three constraints at once that no
+  `laser_filters` plugin can express — it must rewrite `range_max` as well as the ranges.
+  Both `slam_toolbox` and both Nav2 costmaps consume `/scan_filtered`.
 - `turtlebot3_perception` provides the camera and AprilTag launch support used by the main bringup file. Its configuration includes AprilTag, landmark, OAK-D, and RViz settings, and its Python nodes convert detections to landmarks, simulate landmarks, and process laser scans into lines.
 - `landmark_msgs` defines `Landmark` and `LandmarkArray` messages for representing detected landmarks.
 - `turtlebot3_simulations` provides the TurtleBot3 fake node and Gazebo simulation packages. The source tree also includes an Ignition simulation package, currently marked with `COLCON_IGNORE`.

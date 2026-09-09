@@ -460,7 +460,7 @@ def _package_root():
 def _declared_parameters(module_name):
     import re
     path = os.path.join(_package_root(), 'asr_summer_school', module_name)
-    return set(re.findall(r"declare_parameter\(\s*'([^']+)'", open(path).read()))
+    return set(re.findall(r"_?declare(?:_parameter)?\(\s*'([^']+)'", open(path).read()))
 
 
 def _mission_yaml():
@@ -695,7 +695,7 @@ def test_every_parameter_read_is_also_declared(module):
 
     source = open(os.path.join(
         _package_root(), 'asr_summer_school', module)).read()
-    declared = set(re.findall(r"declare_parameter\(\s*'([^']+)'", source))
+    declared = set(re.findall(r"_?declare(?:_parameter)?\(\s*'([^']+)'", source))
     # `param()` is mission_control's own accessor over get_parameter.
     read = set(re.findall(r"get_parameter\(\s*'([^']+)'", source))
     read |= set(re.findall(r"\bparam\(\s*'([^']+)'", source))
@@ -711,3 +711,21 @@ def test_the_mission_aims_inside_the_scored_return_circle():
     assert 0.0 < tolerance < score_report.RETURN_RADIUS_M
     # Enough margin left over to absorb the SLAM drift measured in a full run.
     assert score_report.RETURN_RADIUS_M - tolerance >= 0.10
+
+
+def test_launch_exposed_numeric_parameters_accept_either_number_type():
+    """rclpy refuses an int override for a double-declared parameter, and kills
+    the node at construction when it gets one.  `mission_duration:=150` did
+    exactly that while `150.0` worked — a distinction nobody should have to
+    remember under time pressure, so these three are declared dynamically and
+    coerced on the way out."""
+    import re
+
+    source = open(os.path.join(
+        _package_root(), 'asr_summer_school', 'mission_control.py')).read()
+    for name in ('mission_duration', 'scan_rotation', 'stop_after_tags'):
+        assert re.search(
+            r"_declare\(\s*'{}'\s*,[^)]*dynamic=True".format(name), source), name
+    # ...and param() has to put the type back, or the arithmetic downstream
+    # starts seeing ints where it expects seconds.
+    assert 'self._declared_types' in source

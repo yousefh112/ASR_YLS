@@ -1,0 +1,10 @@
+# Semantic map: AprilTag landmarks in the map frame.
+# Written by asr_summer_school, format mirrors
+# turtlebot3_perception/config/landmarks.yaml
+landmarks:
+  frame_id: map
+  family: 'tag36h11'
+  id: [4, 5, 7, 9, 10]
+  x: [0.6095, 9.9797, 4.7434, -0.2605, 9.7211]
+  y: [0.9363, -0.4709, -4.9691, -10.0437, -10.0689]
+  z: [0.2683, 0.2794, 0.2678, 0.2791, 0.2823]

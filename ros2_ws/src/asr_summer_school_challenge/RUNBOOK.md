@@ -75,6 +75,21 @@ Score the finished run against the arena's own ground truth:
 ros2 run asr_summer_school score_report.py --run ~/asr_mission_output
 ```
 
+### One command instead of three
+
+For iterating, `sim_run.sh` does all of the above headless and scores the result:
+
+```bash
+cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge
+./sim_run.sh                                     # 600 s, default settings
+./sim_run.sh quick 300                           # 300 s, tagged "quick"
+./sim_run.sh nosweep 600 scan_rotation:=0.0      # extra args go to mission.launch.py
+./sim_stop.sh                                    # kill a stack left running
+```
+
+Logs and deliverables land in `~/asr_mission_output/<tag>/`. Measured scores and a
+reference set of deliverables are in [`results/`](results/).
+
 ---
 
 ## 3. Run on the robot

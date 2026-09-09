@@ -19,7 +19,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            Shutdown)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -118,7 +119,14 @@ def generate_launch_description():
         executable='mission_control.py',
         output='screen',
         emulate_tty=True,
-        parameters=[configured_params])
+        parameters=[configured_params],
+        # When the mission ends, the run is over: bring Nav2 down with it.
+        # Without this the launch never returns, because the Nav2 servers this
+        # file also starts have no reason to stop - so a script that waits for
+        # the mission to finish waits for ever, and a human is left wondering
+        # whether anything is still happening.  The deliverables are safe:
+        # mission_control exports from a finally block before it exits.
+        on_exit=Shutdown(reason='mission finished'))
 
     return LaunchDescription([
         declare_use_sim_time,

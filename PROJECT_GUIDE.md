@@ -97,6 +97,24 @@ Score the finished run against the world file's own ground truth:
 ros2 run asr_summer_school score_report.py --run ~/asr_mission_output
 ```
 
+### One command instead of three
+
+For iterating in simulation, `sim_run.sh` starts Gazebo headless, brings the stack
+up, runs a mission and scores it:
+
+```bash
+cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge
+./sim_run.sh                          # 600 s, default settings
+./sim_run.sh quick 300                # a 300 s run tagged "quick"
+./sim_run.sh nosweep 600 scan_rotation:=0.0     # anything here goes to mission.launch.py
+./sim_stop.sh                         # kill a stack left running
+```
+
+Logs and deliverables land in `~/asr_mission_output/<tag>/`. Measured results and a
+complete reference set of deliverables are in
+[`results/`](ros2_ws/src/asr_summer_school_challenge/results/).
+
+
 ### 2.3 On the robot
 
 **On your laptop**, once per session:
@@ -221,7 +239,7 @@ Everything we wrote is in
 | `RUNBOOK.md` | Pre-flight checklist and diagnosis table |
 
 Anything that can be tested without a running graph does not import rclpy. That is what
-lets 72 tests run in half a second on a laptop with nothing sourced. Six more are C++
+lets 74 tests run in half a second on a laptop with nothing sourced. Six more are C++
 gtest cases over the frontier search, run by `colcon test`.
 
 ---
@@ -496,7 +514,7 @@ re-optimisation. `mission_report.json` records every jump under `map_jumps`.
 
 ## 9. Tests
 
-**72 Python tests**, no ROS and no simulator, in under a second:
+**74 Python tests**, no ROS and no simulator, in under a second:
 
 ```bash
 python3 -m pytest ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/asr_summer_school/test -q
@@ -570,7 +588,7 @@ checked in beside it. `VENDORED.md` records the upstream URL and pinned commit f
 so taking an update is still a reviewable diff.
 
 Verified by cloning this repository into an empty directory and building all ten packages
-from nothing in 53 seconds, then running the 72 offline tests in the clone.
+from nothing in 53 seconds, then running the 74 offline tests in the clone.
 
 Bundles of both repositories as they were before the restructuring are in
 `~/ASR_YLS_backup/`, in case anything needs to be recovered.

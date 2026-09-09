@@ -201,6 +201,8 @@ ros2_ws/src/
     turtlebot3_perception/    vendored, do not edit
     turtlebot3_simulations/   vendored, do not edit
     RUNBOOK.md                how to run it
+    sim_run.sh, sim_stop.sh   one-command simulated run, headless and scored
+    results/                  measured scores and a reference set of deliverables
     VENDORED.md               upstreams and pinned commits for the three above
   third_party/                vendored apriltag stack, built from source
 ```
@@ -341,7 +343,7 @@ four required variables up front.
   `ament_cmake`, not `ament_python`, despite what the README says.
 - Logic that can be tested without a graph should not import rclpy. `frontier_policy`,
   `tag_map`, `mission_clock`, `geometry`, `map_export` and `score_report` all follow this, and the
-  72 offline tests run in under a second.  The frontier search is C++ and is covered by
+  74 offline tests run in under a second.  The frontier search is C++ and is covered by
   `test/test_frontier_detection.cpp`, run with `colcon test`.
 - Use `BasicNavigator` for goal dispatch. Call `waitUntilNav2Active(localizer='controller_server')`,
   **not** the default, because we run SLAM and there is no AMCL.

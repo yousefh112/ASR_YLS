@@ -34,6 +34,7 @@ from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.logging import LoggingSeverity
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.time import Time
@@ -78,7 +79,17 @@ class MissionSupport(Node):
     def __init__(self):
         super().__init__('mission_control')
 
-        self.declare_parameter('mission_duration', 600.0)
+        # Remembers the type each parameter was declared with, so param() can
+        # hand back what the code expects however the value was written.
+        self._declared_types = {}
+
+        # Dynamically typed, because these three are launch arguments a human
+        # types under time pressure.  rclpy rejects an int override for a
+        # double-declared parameter, so `mission_duration:=150` killed the node
+        # at construction while `150.0` worked - a distinction nobody should
+        # have to remember while a battery drains.  param() coerces on the way
+        # out, so the rest of the code still sees a float.
+        self._declare('mission_duration', 600.0, dynamic=True)
         self.declare_parameter('map_frame', 'map')
         # base_footprint is the TurtleBot3 convention and what slam_toolbox
         # publishes against.
@@ -124,7 +135,7 @@ class MissionSupport(Node):
         # only safe when the true count is known; it exists because the
         # organisers may announce it, and because a run that ends the moment it
         # has everything is the one that wins a tie on time.
-        self.declare_parameter('stop_after_tags', 0)
+        self._declare('stop_after_tags', 0, dynamic=True)
         # A full turn on the spot before exploring.  One stationary scan gives
         # slam_toolbox a speckled map with unknown cells scattered through the
         # free space, and the detector then clusters that speckle into a single
@@ -177,7 +188,7 @@ class MissionSupport(Node):
         # sees about 60 degrees, so a tag on a wall the robot drove past
         # without turning towards is simply never detected - and a tag is 50
         # points against the 30 the entire accuracy category is worth.
-        self.declare_parameter('scan_rotation', 6.28)
+        self._declare('scan_rotation', 6.28, dynamic=True)
         # ...but only while there is time to spare.  A sweep is worth roughly
         # ten seconds; spending it when the return budget is thin trades 50
         # points for a 180 point swing.
@@ -188,8 +199,29 @@ class MissionSupport(Node):
         self.buffer = tf2_ros.Buffer(cache_time=Duration(seconds=30.0))
         self.listener = tf2_ros.TransformListener(self.buffer, self, spin_thread=False)
 
+    def _declare(self, name, default, dynamic=False):
+        descriptor = ParameterDescriptor(dynamic_typing=True) if dynamic else None
+        if descriptor is None:
+            self.declare_parameter(name, default)
+        else:
+            self.declare_parameter(name, default, descriptor)
+        self._declared_types[name] = type(default)
+
     def param(self, name):
-        return self.get_parameter(name).value
+        """The parameter's value, coerced back to the type it was declared as.
+
+        A dynamically typed parameter accepts whatever the caller wrote, which
+        is the point - but the code downstream does arithmetic on it and should
+        not have to care whether someone typed 150 or 150.0.
+        """
+        value = self.get_parameter(name).value
+        expected = self._declared_types.get(name)
+        if expected in (float, int) and value is not None and not isinstance(value, bool):
+            try:
+                return expected(value)
+            except (TypeError, ValueError):
+                return value
+        return value
 
     @property
     def output_directory(self):
