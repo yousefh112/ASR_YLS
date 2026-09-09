@@ -2,3 +2,7 @@ ros2_ws/log/
 ros2_ws/install/
 ros2_ws/build/
 .vscode/
+
+# Per-developer Claude Code settings. Personal permission rules and overrides;
+# never committed, so nobody inherits someone else's.
+.claude/settings.local.json
