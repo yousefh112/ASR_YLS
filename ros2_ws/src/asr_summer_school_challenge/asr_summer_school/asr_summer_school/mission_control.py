@@ -48,6 +48,13 @@ from asr_summer_school.mission_clock import MissionClock, path_length
 from asr_summer_school.tag_manager import TagManager
 
 
+# The challenge rule: the robot counts as returned when it stops inside a
+# circle of this radius centred on its starting point.  `home_tolerance` is
+# deliberately tighter than this - it is what the mission aims at, leaving the
+# difference as margin for the drift between the estimated and the true pose.
+RETURN_RULE_RADIUS_M = 0.50
+
+
 class State(Enum):
     INIT = 'init'
     EXPLORE = 'explore'
@@ -108,10 +115,16 @@ class MissionSupport(Node):
         # seconds of an empty frontier list, which is what a map looks like a
         # moment after startup, so the mission declared the arena explored
         # before the robot had moved.
-        self.declare_parameter('no_frontier_timeout', 25.0)
+        self.declare_parameter('no_frontier_timeout', 6.0)
         # Empty frontier list survives this many recovery spins before the
         # arena is accepted as explored.
-        self.declare_parameter('recovery_spins', 3)
+        self.declare_parameter('recovery_spins', 1)
+        # Finish as soon as this many unique tags are in hand.  0 disables it.
+        # The rubric pays 50 a tag and nothing for finishing early, so this is
+        # only safe when the true count is known; it exists because the
+        # organisers may announce it, and because a run that ends the moment it
+        # has everything is the one that wins a tie on time.
+        self.declare_parameter('stop_after_tags', 0)
         # A full turn on the spot before exploring.  One stationary scan gives
         # slam_toolbox a speckled map with unknown cells scattered through the
         # free space, and the detector then clusters that speckle into a single
@@ -693,6 +706,17 @@ class MissionControl:
         self.update_budget()
         now = self.clock.elapsed()
 
+        target_tags = int(self.support.param('stop_after_tags'))
+        if target_tags > 0 and self.tags.count >= target_tags:
+            self.stop_reason = 'found all {} tags'.format(target_tags)
+            self.log.info('{}; going home with {:.0f} s of the window unused'
+                          .format(self.stop_reason, self.clock.remaining()))
+            if self.target is not None:
+                self.navigator.cancelTask()
+                self.finish_goal(False, 'cancelled, all tags found')
+            self.state = State.RETURN
+            return
+
         if self.clock.must_return():
             self.stop_reason = 'return budget spent'
             if self.target is not None:
@@ -776,8 +800,15 @@ class MissionControl:
             if distance is not None and distance <= tolerance:
                 self.returned_home = True
                 self.final_distance = distance
-                self.log.info('home: {:.2f} m from start with {:.0f} s to spare'
-                              .format(distance, self.clock.remaining()))
+                # The rule is a 50 cm circle around the start.  We aim at
+                # `tolerance` (tighter) so that SLAM drift between where TF
+                # believes the robot is and where it physically stands still
+                # leaves the robot inside the circle that scores.
+                self.log.info(
+                    'home: {:.2f} m from start, {:.2f} m of margin inside the '
+                    '{:.2f} m rule, with {:.0f} s to spare'.format(
+                        distance, RETURN_RULE_RADIUS_M - distance,
+                        RETURN_RULE_RADIUS_M, self.clock.remaining()))
                 return
 
             self.final_distance = distance
@@ -828,6 +859,10 @@ class MissionControl:
                 'yaw': round(self.home[2], 3)},
             'final_distance_from_home_m': (
                 None if self.final_distance is None else round(self.final_distance, 3)),
+            'return_rule_radius_m': RETURN_RULE_RADIUS_M,
+            'inside_return_rule': (
+                None if self.final_distance is None
+                else self.final_distance <= RETURN_RULE_RADIUS_M),
             'unique_tags': len(tags),
             'tag_ids': [t['id'] for t in tags],
             'goals_sent': self.goals_sent,

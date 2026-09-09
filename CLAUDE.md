@@ -43,20 +43,43 @@ Fast DDS default.
 | Penalties | Manual intervention | -50 |
 | Penalties | Collision | -20 |
 
-Three things fall out of this and they drove every design decision below.
+**The return circle is 50 cm.** The robot counts as home when it stops inside a circle of
+50 cm radius around its starting point. `home_tolerance` is set to 0.35 m — deliberately
+tighter — so that the drift between where TF believes the robot is and where it physically
+stands still leaves it inside the circle that scores. Measured SLAM drift is 3–8 cm, so the
+15 cm of margin is real.
 
-**Finishing cleanly beats finding tags.** Zero tags still scores 450: map 100 + semantic map 100 +
-autonomous exploration 100 + on-time return 150. That skeleton closes reliably now; everything else
-is upside.
+**Finish as early as the arena allows; the deadline is a safety net, not a target.** The
+rubric pays nothing extra for finishing early, but a run that ends the moment it has
+everything wins a tie on time and cannot be caught out by a slow return. The mission already
+returns as soon as the frontier search is exhausted, and `stop_after_tags` ends it the moment
+a known tag count is in hand — 2 tags in a test run took 107 s of a 600 s window, home with
+493 s unused. **Speed must never preempt coverage**: a tag is +50 and finishing early is +0,
+so leave the arena early only when there is nothing left to find.
 
-**The deadline dominates.** On-time (+150) versus one minute late (-30) is a 180-point swing, worth
-3.6 tags. The mission timer and the go-home behaviour were built first.
+**The deadline still dominates the downside.** On-time (+150) versus one minute late (-30) is
+a 180-point swing, worth 3.6 tags. The mission timer and the go-home behaviour were built
+first and are re-estimated from a real planner path every three seconds.
 
-**Accuracy is the smallest term.** +30 total, not per tag. This is why `max_detection_range` is set
-by what can be *decoded* rather than what can be decoded *precisely*: a tag seen once at 5 m is +50
-against an accuracy category worth 30 in total.
+**Accuracy is the smallest term.** +30 total, not per tag. This is why `max_detection_range`
+is set by what can be *decoded* rather than what can be decoded *precisely*.
 
-Priority order: **timed return, then map export, then coverage, then tag count, then accuracy.**
+**Turning on the spot is not wasted time, but waiting is.** Spinning was measured at 48% of
+one 516 s run, so it was the obvious thing to cut. It is not: across four full runs, removing
+or halving the camera sweep left tag count unchanged at 4 and cost the *localisation* — the
+accuracy award went 30 → 0 and the final return went 3 cm → 21 cm, because a full turn feeds
+slam_toolbox about thirty well-constrained pose-graph nodes from a known position. What was
+genuinely wasted was **waiting**: the recovery ladder sat idle 25 s before each of three
+turns. That is now 6 s and one turn.
+
+| Camera sweep | Tags | Accuracy | Return | Total |
+|---|---|---|---|---|
+| Full turn (2π) | 5 / 4 | +30 | 0.05 / 0.03 m | **730 / 680** |
+| Half turn (π) | 4 | +0 | 0.21 m | 650 |
+| None | 4 | +0 | 0.21 m | 650 |
+
+Priority order: **timed return, then map export, then coverage, then tag count, then accuracy
+— and among equal outcomes, the shorter run.**
 
 ---
 

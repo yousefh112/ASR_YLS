@@ -54,6 +54,12 @@ mission_control:
     trust_odom_after_jump: true
     return_grace: 45.0             # stop trying this far past the deadline
 
+    # Stop exploring the moment this many unique tags are in hand and drive
+    # home, however much time is left.  0 disables it, which is the right
+    # setting when the tag count is unknown - leaving early with tags unfound
+    # costs 50 points each.  Set it only if the organisers announce the number.
+    stop_after_tags: 0
+
     # ---------------- exploration ----------------
     # How long one frontier goal may run, scaled by how far away it is:
     # distance / return_speed * factor, clamped.  A flat timeout is either
@@ -63,11 +69,19 @@ mission_control:
     goal_timeout_factor: 2.0
 
     # An empty frontier list has to persist this long, and then survive this
-    # many full turns on the spot, before the arena counts as explored.  The
-    # tick-based patience this replaced gave up after three seconds, which is
-    # what a map looks like immediately after startup.
-    no_frontier_timeout: 25.0
-    recovery_spins: 3
+    # many full turns on the spot, before the arena counts as explored.
+    #
+    # 6 s, down from 25.  The 25 s was set while the frontier search could not
+    # see the edge of the map and went silent in open space, so a long wait was
+    # the only thing standing between a transient and a wrongly-ended mission.
+    # With that fixed an empty list is a trustworthy signal, and 6 s still spans
+    # three map updates.  One recovery turn instead of three: if a full turn and
+    # a costmap wipe do not produce a frontier, two more will not either, and
+    # the arena is not going to explore itself while the robot pirouettes.
+    #
+    # Measured: spinning consumed 48% of a 516 s run.
+    no_frontier_timeout: 6.0
+    recovery_spins: 1
 
     # One full turn before exploring starts.  A single stationary scan leaves
     # unknown gaps scattered through the free space; the detector reads every

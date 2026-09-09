@@ -701,3 +701,13 @@ def test_every_parameter_read_is_also_declared(module):
     read |= set(re.findall(r"\bparam\(\s*'([^']+)'", source))
     read.discard('use_sim_time')          # declared by rclpy itself
     assert read - declared == set()
+
+
+def test_the_mission_aims_inside_the_scored_return_circle():
+    """The rule is a 50 cm circle.  Accepting arrival at exactly 50 cm puts the
+    run on the boundary of a 150-point swing, with no room for the drift between
+    where TF believes the robot is and where it physically stands."""
+    tolerance = _mission_yaml()['mission_control']['ros__parameters']['home_tolerance']
+    assert 0.0 < tolerance < score_report.RETURN_RADIUS_M
+    # Enough margin left over to absorb the SLAM drift measured in a full run.
+    assert score_report.RETURN_RADIUS_M - tolerance >= 0.10

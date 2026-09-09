@@ -403,9 +403,36 @@ If it disagrees, `scan_preprocess` prints a warning naming the value to use. Pas
 — readings past the configured horizon are treated as "nothing there", which never invents
 an obstacle — but the robot maps less per scan than it could.
 
-**3. `home_tolerance`** (`config/param_mission.yaml`, default 0.35 m). The rules say
-50 cm; aiming at 35 leaves room for the difference between where TF thinks the robot is
-and where it physically is.
+**3. `home_tolerance`** (`config/param_mission.yaml`, default 0.35 m). The rule is a
+circle of **50 cm radius** around the starting point. Aiming at 35 cm leaves 15 cm for the
+drift between where TF thinks the robot is and where it physically is; measured drift is
+3–8 cm. Do not raise it to 0.50 — that puts the run on the boundary of a 150-point swing.
+
+### Finishing early, and the one cut not to make
+
+The rubric pays nothing for a short run, but a short run wins a tie on time. Two launch
+arguments:
+
+```bash
+stop_after_tags:=11    # leave the moment 11 tags are in hand (only if the count is known)
+scan_rotation:=0.0     # drop the camera sweep, ~8 s per goal
+```
+
+`stop_after_tags` works: 2 tags found at t+79 s, home by t+107 s of a 600 s window.
+
+`scan_rotation:=0.0` is the tempting cut and the wrong one. Spinning measured 48% of one
+516 s run, but across four full runs removing or halving it left the tag count unchanged at
+4 and cost the *localisation* — accuracy 30 → 0, return 3 cm → 21 cm — because a full turn
+feeds slam_toolbox about thirty well-constrained pose-graph nodes from a known position.
+
+| Camera sweep | Tags | Accuracy | Return | Total |
+|---|---|---|---|---|
+| Full turn (2π, default) | 5 / 4 | +30 | 0.05 / 0.03 m | **730 / 680** |
+| Half turn (π) | 4 | +0 | 0.21 m | 650 |
+| None | 4 | +0 | 0.21 m | 650 |
+
+The real waste was *waiting*: the no-frontier recovery sat idle 25 s before each of three
+turns. It now waits 6 s and turns once.
 
 Everything else lives in `config/param_mission.yaml` with a comment saying what it trades
 off. If the tag count is low and there is time to spare, `scan_rotation` and

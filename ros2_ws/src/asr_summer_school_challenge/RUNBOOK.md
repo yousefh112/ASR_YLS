@@ -211,9 +211,42 @@ less per scan than it could.
 **`mission_duration` again** — it is worth saying twice. Everything else on this
 list is worth tens of points; this one is worth 180.
 
-**`home_tolerance`** (`config/param_mission.yaml`, default 0.35 m) — the rules
-say 50 cm. Aiming at 35 leaves room for the difference between where TF thinks
-the robot is and where it physically is.
+**`home_tolerance`** (`config/param_mission.yaml`, default 0.35 m) — the rule is
+a circle of **50 cm radius** around the starting point. Aiming at 35 cm leaves
+15 cm for the difference between where TF thinks the robot is and where it
+physically is; measured drift is 3–8 cm, so the margin is real. Do not raise it
+to 0.50: that puts the run on the boundary of a 150-point swing.
+
+### Finishing early, and the one cut not to make
+
+The rubric pays nothing extra for a short run, but a short run wins a tie on
+time and cannot be caught out by a slow return. Two launch arguments, so nothing
+has to be edited on the day:
+
+```bash
+stop_after_tags:=11    # leave the moment 11 tags are in hand
+scan_rotation:=0.0     # drop the camera sweep at each frontier, ~8 s per goal
+```
+
+`stop_after_tags` works: 2 tags found at t+79 s, home by t+107 s of a 600 s
+window with 493 s unused. **Only set it if the organisers announce the count** —
+a tag is +50 and finishing early is +0, so leaving with tags unfound is a
+straight loss.
+
+`scan_rotation:=0.0` is the tempting cut and the wrong one. Spinning measured
+48% of one 516 s run, but across four full runs removing or halving it left the
+tag count unchanged at 4 and cost the *localisation*: accuracy 30 → 0, final
+return 3 cm → 21 cm. A full turn feeds slam_toolbox about thirty
+well-constrained pose-graph nodes from a known position.
+
+| Camera sweep | Tags | Accuracy | Return | Total |
+|---|---|---|---|---|
+| Full turn (2π, default) | 5 / 4 | +30 | 0.05 / 0.03 m | **730 / 680** |
+| Half turn (π) | 4 | +0 | 0.21 m | 650 |
+| None | 4 | +0 | 0.21 m | 650 |
+
+The real waste was *waiting*, and it is already gone: the no-frontier recovery
+sat idle 25 s before each of three turns; it now waits 6 s and turns once.
 
 Everything else lives in `config/param_mission.yaml` with a comment saying what
 it trades off. If tag count is low and there is time to spare, `scan_rotation`

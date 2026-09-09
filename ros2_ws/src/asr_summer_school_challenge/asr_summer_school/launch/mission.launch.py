@@ -42,6 +42,8 @@ def generate_launch_description():
     mission_duration = LaunchConfiguration('mission_duration')
     output_directory = LaunchConfiguration('output_directory')
     optical_correction = LaunchConfiguration('optical_correction')
+    scan_rotation = LaunchConfiguration('scan_rotation')
+    stop_after_tags = LaunchConfiguration('stop_after_tags')
     start_nav2 = LaunchConfiguration('start_nav2')
     autostart = LaunchConfiguration('autostart')
 
@@ -62,6 +64,16 @@ def generate_launch_description():
     declare_output_directory = DeclareLaunchArgument(
         'output_directory', default_value='~/asr_mission_output',
         description='Where the map, semantic map and report are written')
+    declare_scan_rotation = DeclareLaunchArgument(
+        'scan_rotation', default_value='6.28',
+        description='Radians to turn on the spot at each frontier so the '
+                    '60-degree camera sweeps the area.  0.0 disables it.  '
+                    'Costs about 8 s per goal, so it is the first thing to '
+                    'trade away when the run has to be short.')
+    declare_stop_after_tags = DeclareLaunchArgument(
+        'stop_after_tags', default_value='0',
+        description='Go home as soon as this many unique tags are found. '
+                    '0 disables it; only set it if the true count is known.')
     declare_optical_correction = DeclareLaunchArgument(
         'optical_correction', default_value='auto',
         description='auto | on | off.  Whether to rotate AprilTag poses out '
@@ -83,6 +95,8 @@ def generate_launch_description():
                 'mission_duration': mission_duration,
                 'output_directory': output_directory,
                 'optical_correction': optical_correction,
+                'scan_rotation': scan_rotation,
+                'stop_after_tags': stop_after_tags,
             },
             convert_types=True),
         allow_substs=True)
@@ -113,6 +127,8 @@ def generate_launch_description():
         declare_mission_duration,
         declare_output_directory,
         declare_optical_correction,
+        declare_scan_rotation,
+        declare_stop_after_tags,
         declare_start_nav2,
         declare_autostart,
         nav2,
