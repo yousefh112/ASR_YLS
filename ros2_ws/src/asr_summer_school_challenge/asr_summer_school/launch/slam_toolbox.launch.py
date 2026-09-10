@@ -30,8 +30,10 @@ def generate_launch_description():
         'laser_max_range', default_value='3.5',
         description='Maximum usable laser range, metres')
 
-    # `laser_max_range` is the *sensor* horizon: 3.5 m for the LDS-02 and for
-    # its Gazebo model.  What the mapper wants is a range *threshold* slightly
+    # `laser_max_range` is the *sensor* horizon, and it differs between the
+    # robot and the simulator: the real LDS-02 reaches 8 m, while the Gazebo
+    # model is an LDS-01 reaching 3.5 m.  bringup.launch.py picks the right one
+    # from LDS_MODEL; bringup_simulation.launch.py passes 3.5.  What the mapper wants is a range *threshold* slightly
     # below it, so that the no-return rays scan_preprocess.py reports at 20 m
     # land above the threshold and are traced as free space rather than marked
     # as obstacles.  The 0.1 m of headroom is applied here so that changing the

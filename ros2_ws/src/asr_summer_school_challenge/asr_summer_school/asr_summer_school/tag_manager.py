@@ -92,8 +92,16 @@ class TagManager(Node):
         self.max_detection_age = self.get_parameter('max_detection_age').value
         self._publish_markers = bool(self.get_parameter('publish_markers').value)
 
+        # Kept as an attribute as well as inside TagMap: the coverage report
+        # needs to know how far the camera could see, and it lives in
+        # mission_control, which is a different node.  Reading another node's
+        # parameter across that boundary would work but reads as though
+        # mission_control declared it, which it must not.
+        self.max_detection_range = float(
+            self.get_parameter('max_detection_range').value)
+
         self.tag_map = TagMap(
-            max_range=self.get_parameter('max_detection_range').value,
+            max_range=self.max_detection_range,
             gate_distance=self.get_parameter('gate_distance').value,
             gate_patience=self.get_parameter('gate_patience').value)
 

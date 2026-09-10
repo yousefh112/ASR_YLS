@@ -31,6 +31,7 @@ obstacles.
 import argparse
 import math
 import os
+import re
 import shutil
 import xml.etree.ElementTree as ET
 
@@ -352,6 +353,48 @@ def generate_textures(ids, imgs_dir):
     print("wrote %d tag textures to %s" % (len(ids), MODELS))
 
 
+CODEBOOK_C = os.path.join(os.path.dirname(os.path.dirname(PKG)),
+                          "third_party", "apriltag", "tag36h11.c")
+
+
+def generate_textures_from_codebook(ids):
+    """Draw tag textures from the vendored apriltag codebook.
+
+    The alternative is a checkout of AprilRobotics/apriltag-imgs, which needs
+    network access we may not have in the lab and which is one more thing to
+    have forgotten.  The codes are already in the tree, in the same library that
+    does the detecting, so the textures can simply be drawn.
+
+    A tag36h11 image is 10x10 cells: a one-cell white margin, an 8x8 black
+    border (`width_at_border`), and the 36 data bits inside it at the (bit_x,
+    bit_y) offsets the library lists.  Verified against the shipped textures for
+    ids 0, 5 and 10 - the renderer reproduces them cell for cell.
+    """
+    import numpy as np
+    from PIL import Image
+
+    source = open(CODEBOOK_C).read()
+    codes = [int(m, 16) for m in re.findall(r"0x([0-9a-fA-F]+)(?:UL)?L?\s*,", source)]
+    bit_x = {int(i): int(v) for i, v in re.findall(r"bit_x\[(\d+)\]\s*=\s*(\d+)", source)}
+    bit_y = {int(i): int(v) for i, v in re.findall(r"bit_y\[(\d+)\]\s*=\s*(\d+)", source)}
+    nbits = len(bit_x)
+
+    for i in ids:
+        if i >= len(codes):
+            raise SystemExit("tag36h11 has only %d ids; %d was asked for" % (len(codes), i))
+        cells = np.full((10, 10), 255, dtype=np.uint8)
+        cells[1:9, 1:9] = 0
+        for b in range(nbits):
+            bit = (codes[i] >> (nbits - 1 - b)) & 1
+            cells[bit_y[b] + 1, bit_x[b] + 1] = 255 if bit else 0
+        img = np.repeat(np.repeat(cells, TEXTURE_PX // 10, axis=0),
+                        TEXTURE_PX // 10, axis=1)
+        shutil.rmtree(os.path.join(MODELS, names(i)[1]), ignore_errors=True)
+        os.makedirs(os.path.dirname(texture_path(i)), exist_ok=True)
+        Image.fromarray(img).save(texture_path(i))
+    print("drew %d tag textures from %s" % (len(ids), CODEBOOK_C))
+
+
 def generate_models(ids):
     """Model descriptors for both simulators, around the textures already in place."""
     for i in ids:
@@ -406,6 +449,7 @@ def write_world(src, out, spots, engine):
 
 
 def main():
+    global SRC_WORLD, OUT_WORLD, ARENA
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apriltag-imgs", metavar="DIR",
@@ -419,7 +463,26 @@ def main():
     ap.add_argument("--ignition-base", metavar="WORLD", default=IGN_SRC_WORLD,
                     help="turtlebot3_ignition maze to tag as well (default %(default)s); "
                          "skipped when it is missing")
+    # The competition arena is a different size and shape from the practice
+    # maze, so the base world, the output and the arena half-width all have to
+    # move together.  See scripts/generate_competition_arena.py.
+    ap.add_argument("--base", metavar="WORLD",
+                    help="base world to place tags in (default %s)" % SRC_WORLD)
+    ap.add_argument("--out", metavar="WORLD",
+                    help="world to write (default %s)" % OUT_WORLD)
+    ap.add_argument("--arena", type=float, metavar="M",
+                    help="inner face of the border walls, at +-M on both axes "
+                         "(default %g). Tag placement rejects anything outside "
+                         "this, so it must match the base world or no tag is "
+                         "placed at all." % ARENA)
     args = ap.parse_args()
+
+    if args.base:
+        SRC_WORLD = os.path.abspath(args.base)
+    if args.out:
+        OUT_WORLD = os.path.abspath(args.out)
+    if args.arena:
+        ARENA = args.arena
 
     boxes = load_boxes()
     spots = place(boxes, args.tags or installed_tags() or N_TAGS)
@@ -430,10 +493,14 @@ def main():
 
     missing = [i for i in ids if not os.path.isfile(texture_path(i))]
     if missing:
-        raise SystemExit("no texture for tag ids %s; rerun with --apriltag-imgs" % missing)
+        # No network, no checkout, no excuse: the codes are vendored.
+        generate_textures_from_codebook(missing)
     generate_models(ids)
 
     write_world(SRC_WORLD, OUT_WORLD, spots, "classic")
+    if args.base:
+        # A custom base has no Ignition counterpart to mirror it into.
+        return
     if os.path.isfile(args.ignition_base):
         write_world(args.ignition_base, IGN_OUT_WORLD, spots, "ignition")
     else:

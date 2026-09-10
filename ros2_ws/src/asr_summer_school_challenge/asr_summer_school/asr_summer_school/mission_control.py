@@ -45,6 +45,7 @@ from asr_summer_school.map_export import (grid_statistics, save_occupancy_grid,
                                           save_overlay, save_report,
                                           save_semantic_map)
 from asr_summer_school.map_recorder import MapRecorder
+from asr_summer_school.coverage import coverage_summary, format_coverage
 from asr_summer_school.patrol import candidate_points, choose_patrol_target
 from asr_summer_school.mission_clock import MissionClock, path_length
 from asr_summer_school.tag_manager import TagManager
@@ -200,6 +201,11 @@ class MissionSupport(Node):
         self.declare_parameter('patrol_max_failures', 4)
         # Below this the robot is standing everywhere it can already.
         self.declare_parameter('patrol_min_spacing', 0.5)
+
+        # How many tags the arena is known to hold.  Used by the coverage
+        # report to name which ids are missing, and by stop_after_tags.  0 means
+        # unknown, and the report then only counts what was found.
+        self.declare_parameter('expected_tags', 0)
         # Rotate on arrival at a frontier so the forward-facing camera sweeps
         # the whole area rather than only the direction of travel.  The camera
         # sees about 60 degrees, so a tag on a wall the robot drove past
@@ -1186,6 +1192,39 @@ class MissionControl:
                 self.log.info('overlay -> {}'.format(overlay))
         except Exception as error:
             self.log.warn('overlay export skipped: {}'.format(error))
+
+        # The coverage report.  Printed into the log rather than only written to
+        # a file, because on the robot the log is what comes back from a run,
+        # and because it answers the question every other output leaves open:
+        # was a missing tag missed because the robot never went there, or
+        # because it went there and never looked?
+        try:
+            if grid is not None:
+                summary = coverage_summary(
+                    grid.data, grid.info.width, grid.info.height,
+                    grid.info.resolution,
+                    grid.info.origin.position.x, grid.info.origin.position.y,
+                    self.swept,
+                    # How far the camera could actually decode, which is
+                    # tag_manager's business - a different node, so it is read
+                    # as an attribute rather than as a parameter this node
+                    # never declared.
+                    self.tags.max_detection_range,
+                    [t['id'] for t in tags],
+                    int(self.support.param('expected_tags')),
+                    full_sweep=self.support.param('scan_rotation') >= 5.0)
+                report['coverage'] = summary
+                text = format_coverage(summary)
+                for line in text.splitlines():
+                    self.log.info(line)
+                path = os.path.join(directory, 'coverage_report.txt')
+                with open(path, 'w') as handle:
+                    handle.write(text + '\n')
+                written.append(path)
+                # Rewrite the report now that it carries the coverage block.
+                save_report(report, directory)
+        except Exception as error:
+            self.log.warn('coverage report skipped: {}'.format(error))
 
         if self.map_jumps:
             self.log.warn(

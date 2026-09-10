@@ -10,6 +10,23 @@ from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 
+# What the REAL sensors do, from the ROBOTIS specifications - not from the
+# Gazebo models, which differ and are what the simulation numbers describe.
+#
+#   LDS-01   0.12 - 3.5 m,  1 deg, 5 Hz    (the Gazebo model is this one)
+#   LDS-02   0.16 - 8.0 m,  1 deg, 5 Hz    (what our robot carries)
+#   LDS-03   0.16 - 12  m,  1 deg, 10 Hz
+#
+# Used as the default sensor horizon below.  Verify it on the day rather than
+# trusting this table - `ros2 topic echo /scan --field range_max --once` - and
+# pass laser_max_range:=<metres> if the driver disagrees.  scan_preprocess also
+# prints a warning when the driver's range_max and this value diverge.
+_LDS_RANGE_M = {
+    'LDS-01': '3.5',
+    'LDS-02': '8.0',
+    'LDS-03': '12.0',
+}
+
 # Environment the robot bringup will not start without.  turtlebot3_bringup and
 # turtlebot3_perception both read these with a bare `os.environ[...]`, so an
 # unset one surfaces as a KeyError from inside somebody else's launch file
@@ -54,8 +71,18 @@ def _check_environment(context, *args, **kwargs):
 
 
 def generate_launch_description():
-	# The real sensor horizon, shared by slam_toolbox and the frontier detector.
-	laser_max_range = LaunchConfiguration('laser_max_range', default='3.5')
+	# The real sensor horizon, shared by slam_toolbox and scan_preprocess.
+	#
+	# THIS FILE IS THE ROBOT. The default is taken from LDS_MODEL rather than
+	# copied from the simulator, because the two are not the same sensor and the
+	# difference is large: the Gazebo model is an LDS-01 reaching 3.5 m, while
+	# the robot carries an LDS-02 reaching 8 m. Hard-coding 3.5 here - which is
+	# what this used to do, and what bringup_simulation.launch.py correctly still
+	# does - throws away more than half of the real LiDAR's reach and produces a
+	# map that grows far more slowly than the hardware allows. Nothing warns
+	# about it, because a shorter horizon is not an error.
+	laser_max_range = LaunchConfiguration(
+		'laser_max_range', default=_LDS_RANGE_M.get(os.environ.get('LDS_MODEL'), '3.5'))
 
 	robot_bringup = IncludeLaunchDescription(
 		PythonLaunchDescriptionSource(
@@ -87,19 +114,26 @@ def generate_launch_description():
 		condition=IfCondition(LaunchConfiguration('teleop', default='true'))
 	)
 
+	# Ours, not turtlebot3_perception's.  Same camera, same static transform; the
+	# difference is the colour profile, which the vendored file hardcodes at
+	# 640x480 with no override.  That caps tag decoding at about 5.3 m, against
+	# 8.5 m at 1280x720 - and since a sweep covers a disc, 2.6x the ground per
+	# stop.  See config note at the top of our camera.launch.py.
 	camera = IncludeLaunchDescription(
 		PythonLaunchDescriptionSource(
 			PathJoinSubstitution(
-				[FindPackageShare('turtlebot3_perception'), 'launch', 'camera.launch.py']
+				[FindPackageShare('asr_summer_school'), 'launch', 'camera.launch.py']
 			)
 		)
 	)
 
 	# Ours, not turtlebot3_perception's.  Same composable node and the same
 	# detection2landmark alongside it; the difference is the detector config,
-	# which the vendored launch bakes in with no override hook.  At its
-	# decimate a 16 cm tag stops being decodable at about 2.5 m, half the range
-	# the mission gates detections at.  See config/apriltag.yaml.
+	# which the vendored launch bakes in with no override hook.  Against the
+	# 1280x720 profile our camera.launch.py sets, its decimate of 2.0 would put
+	# the decode horizon near 4 m where 1.0 reaches about 8 m - and a sweep
+	# covers a disc, so that is four times the ground per stop.  Arithmetic in
+	# config/apriltag.yaml.
 	apriltag = IncludeLaunchDescription(
 		PythonLaunchDescriptionSource(
 			PathJoinSubstitution(
@@ -135,10 +169,12 @@ def generate_launch_description():
 			'teleop', default_value='true',
 			description='Start the joypad teleop stack.  Needs joy_linux and a pad.'),
 		DeclareLaunchArgument(
-			'laser_max_range', default_value='3.5',
-			description='LiDAR horizon in metres.  Check the real value with '
-			            '`ros2 topic echo /scan --field range_max` on the robot; '
-			            'scan_preprocess warns if this disagrees with it.'),
+			'laser_max_range',
+			default_value=_LDS_RANGE_M.get(os.environ.get('LDS_MODEL'), '3.5'),
+			description='LiDAR horizon in metres.  Defaults from LDS_MODEL: '
+			            'LDS-01 3.5, LDS-02 8.0, LDS-03 12.0.  Verify on the '
+			            'robot with `ros2 topic echo /scan --field range_max '
+			            '--once`; scan_preprocess warns if the driver disagrees.'),
 		robot_bringup,
 		slam_toolbox,
 		teleop,

@@ -8,36 +8,39 @@
 #
 # The one substantive change is `decimate`.
 #
-# Why decimate 2.0 could not see the tags it was configured to look for
-# ---------------------------------------------------------------------
-# The RealSense is launched at 640x480 with a horizontal field of view of about
-# 55 degrees, so one pixel spans 0.96 rad / 640 = 1.5 mrad.  A 0.16 m tag at
-# range r therefore spans 0.16 / r / 0.0015 pixels:
+# Why decimate matters more than anything else here
+# --------------------------------------------------
+# Whether a tag decodes is decided by how many pixels span it, and `decimate`
+# downsamples the image before quad detection - so it divides that number
+# directly. With our camera.launch.py profile of 1280x720 (HFOV 69 deg) a
+# 0.16 m tag spans (0.16/r)/1.204 * 1280 = 170/r pixels at full resolution:
 #
-#     range      full res     after decimate 2.0
-#     1 m        107 px       53 px
-#     2 m         53 px       27 px
-#     3 m         36 px       18 px
-#     5 m         21 px       11 px
+#     range      decimate 1.0     decimate 2.0
+#     2 m         85 px            43 px
+#     4 m         43 px            21 px
+#     6 m         28 px            14 px
+#     8 m         21 px            11 px
 #
-# `decimate` downsamples the image before quad detection, so the second column
-# is what the detector actually works on.  A 36h11 tag is 8x8 data cells inside
-# a one-cell border - ten cells across - and needs on the order of two pixels
-# per cell to be decoded at all.  Twenty-odd pixels is the floor.
+# A 36h11 tag is ten cells across counting the border and needs on the order of
+# twenty pixels to decode at all. So decimate 1.0 reaches about 8 m and
+# decimate 2.0 about 4 m - and because a camera sweep covers a disc, that is
+# four times the ground per stop.
 #
-# At decimate 2.0 that floor is reached at about 2.5 m, while
-# mission_control's `max_detection_range` was set to 5.0.  The gate was
-# admitting detections the detector could never produce: half the configured
-# range was unreachable, and no error was raised anywhere - the tags simply
-# were not found, which looks exactly like tags that were not there.
+# This is the largest single lever on tag count in the whole stack. The robot
+# is already at the burger's 0.22 m/s ceiling (measured), so it cannot cover
+# more ground by driving harder; it can only see more of the ground it covers.
 #
-# At 1.0 the same floor sits near 5 m and matches the gate.  The cost is CPU,
-# which is why threads goes to 2; the detector is the one thing in the stack
-# whose output is worth 50 points a time.
+# The vendored config ships 2.0, and against the vendored 640x480 profile that
+# put the decode horizon near 2.5 m while the mission was gating detections at
+# 5 m - admitting detections the detector could never produce, silently.
 #
-# If the NUC turns out not to have the headroom, lower the CAMERA frame rate
-# before raising decimate again: the sweep takes about 3 s, so even 10 fps puts
-# thirty frames on the arena, and range matters more than rate.
+# The cost is CPU, which is why threads is 2 and why camera.launch.py drops the
+# frame rate to 15: a sweep takes ~3 s, so 15 fps still puts ~45 frames on the
+# arena per stop. Range decides whether a tag CAN be decoded; frame rate only
+# decides how many chances there are at one already in reach.
+#
+# If the NUC cannot keep up, cut the camera frame rate again before raising
+# this. Check with `ros2 topic hz /camera/detections` while sweeping at a tag.
 camera:
   apriltag:
     ros__parameters:

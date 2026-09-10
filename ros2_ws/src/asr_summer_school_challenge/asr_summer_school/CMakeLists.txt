@@ -118,6 +118,10 @@ if(BUILD_TESTING)
   # maze the frontier search never runs dry, so this path would otherwise ship
   # having never once executed.
   ament_add_pytest_test(test_patrol_wiring test/test_patrol_wiring.py)
+  # The coverage report is the only output that can tell "never went there"
+  # from "went there and never looked", and on the robot it is the only
+  # analysis available at all - score_report needs a Gazebo world file.
+  ament_add_pytest_test(test_coverage test/test_coverage.py)
 endif()
 
 ament_package()

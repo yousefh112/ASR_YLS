@@ -3,6 +3,7 @@
 Everything needed to build, run and debug the mission, in the order you need it.
 Written to be followed at 14:00 on competition day without reading anything else.
 
+- [0. The brief, and what the robot and the simulation do not share](#0-the-brief)
 - [1. Build](#1-build)
 - [2. Run in simulation](#2-run-in-simulation)
 - [3. Run on the robot](#3-run-on-the-robot)
@@ -10,6 +11,63 @@ Written to be followed at 14:00 on competition day without reading anything else
 - [5. Tuning for the real arena](#5-tuning-for-the-real-arena)
 - [6. Diagnosing a bad run](#6-diagnosing-a-bad-run)
 - [7. What was built and why](#7-what-was-built-and-why)
+
+---
+
+## 0. The brief
+
+**The real run: 4 minutes, 12 tags, about 40 m².** Everything in `param_mission.yaml`
+is tuned to those three numbers.
+
+That arena is a tenth the area of the practice maze and the window is 40% as
+long, and it is a *different problem*, not a smaller one:
+
+| | practice maze | real arena |
+|---|---|---|
+| area | 400 m² | **40 m²** |
+| window | 600 s | **240 s** |
+| tags | 11 | **12** |
+| LiDAR from a standstill | 9% of it | **96% of it** |
+| furthest point from home | ~14 m | **~4.4 m** |
+| drive home | ~100 s | **~25 s** |
+
+In 40 m² the map finishes almost immediately, so **exploration stops being the
+constraint**. What is left is pointing a 69° camera at twelve tag faces inside
+240 seconds, which is a viewpoint problem — so `patrol.py` stops being a
+fallback for when frontiers run dry and becomes the main behaviour of the run.
+
+`stop_after_tags` is set to **12** for the same reason. It is only safe to end a
+run early when the true tag count is known, and now it is: the moment all twelve
+are in hand the robot goes home and banks the +150 rather than risking the clock.
+
+### The simulation is for the algorithm, not the arena
+
+The simulation still runs the 20 × 20 m practice maze. It is there to exercise
+the code paths — exploration, patrol, the return, the exports — **not** to
+predict the score. A 240 s run of that maze finds three or four tags, and that
+is the maze being ten times too big, not the stack failing.
+
+### What the robot and the simulation genuinely do not share
+
+These are not tuning preferences. They are different hardware, and every one of
+them is a place where a number that is right in one is wrong in the other.
+
+| | simulation | real robot | set in |
+|---|---|---|---|
+| LiDAR | Gazebo LDS-01, 3.5 m, 5 Hz | **LDS-02, 8.0 m**, 5 Hz | `bringup*.launch.py`, from `LDS_MODEL` |
+| camera | 1920×1080, 59° HFOV, no motion blur | **RealSense 1280×720, 69° HFOV**, rolling shutter | `camera.launch.py` (robot only) |
+| detector decimate | 2.0 | **1.0** | `apriltag_sim.yaml` / `apriltag.yaml` |
+| effective decode range | ~7 m | **~8 m** | follows from the two rows above |
+| clock | `/clock` from Gazebo | wall clock | `use_sim_time`, default **false** |
+
+The camera rows are the ones to watch. Gazebo renders **no motion blur and no
+rolling shutter**, so it cannot tell you anything about whether a 1.9 rad/s sweep
+smears tags past decoding — that is a hardware check, in
+[3.3](#the-four-things-simulation-structurally-cannot-tell-us).
+
+The decimate split exists so the two are comparable at all: the same `decimate`
+against two different sensor resolutions is two different detectors. What is
+matched is the *effective* resolution, not the parameter.
 
 ---
 
@@ -63,7 +121,7 @@ ros2 launch asr_summer_school bringup_simulation.launch.py use_sim_time:=true
 
 # 3  Nav2 + the mission
 ros2 launch asr_summer_school mission.launch.py use_sim_time:=true \
-    mission_duration:=600.0 output_directory:=~/asr_mission_output
+    mission_duration:=240.0 output_directory:=~/asr_mission_output
 
 # 4  optional: watch it
 ros2 launch turtlebot3_bringup rviz2.launch.py use_sim_time:=true
@@ -81,11 +139,18 @@ For iterating, `sim_run.sh` does all of the above headless and scores the result
 
 ```bash
 cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge
-./sim_run.sh                                     # 600 s, default settings
-./sim_run.sh quick 300                           # 300 s, tagged "quick"
-./sim_run.sh nosweep 600 scan_rotation:=0.0      # extra args go to mission.launch.py
+./sim_run.sh comp 240                            # the real window: 4 minutes
+./sim_run.sh long 600                            # the maze at its own scale
+./sim_run.sh nosweep 240 scan_rotation:=0.0      # extra args go to mission.launch.py
 ./sim_stop.sh                                    # kill a stack left running
 ```
+
+**A 240 s run of this maze finds three or four tags, and that is correct.** The
+maze is 400 m² and the real arena is 40; four minutes buys about 50 m of driving,
+which covers a tenth of it. Use the 240 s form to check that the *behaviour* is
+right — that patrol takes over when frontiers run dry, that the return fires on
+time, that all six files are written — and the 600 s form when you want the maze
+explored properly. Neither predicts the score on the day.
 
 Logs and deliverables land in `~/asr_mission_output/<tag>/`. Measured scores and a
 reference set of deliverables are in [`results/`](results/).
@@ -324,6 +389,59 @@ one:
 | `semantic_map.csv` | One row per tag, for a spreadsheet |
 | `mission_report.json` | Timings, goal counts, map statistics, detected SLAM jumps |
 | `mission_overlay.png` | The grid with the tags, the start and the finish drawn on it |
+| `coverage_report.txt` | **What the run looked at and what it did not.** Also printed into `mission.log` |
+
+### The coverage report
+
+`score_report.py` needs the Gazebo world file to know where the tags really are,
+so it cannot run on the robot — there is no ground truth for a physical arena.
+The coverage report answers a different question that does not need one, and it
+prints identically in simulation and on the robot:
+
+**Was a tag missed because the robot never went there, or because it went there
+and never pointed the camera at it?**
+
+Those two have opposite fixes, and no other output distinguishes them: the grid
+looks complete, every goal reports success, and the tag is simply absent. So the
+report splits the arena into what the LiDAR mapped and what the camera actually
+saw — by casting rays from every sweep position, so walls block the view the way
+they really do.
+
+```text
+LEFT UNEXPLORED
+  2.80 m2 of frontier was still open when the run ended.
+  The arena was NOT fully explored: there was somewhere left to go
+  and the clock, not the map, ended the run.
+
+SEEN BY THE CAMERA
+  sweep positions  12
+  seen                83.10 m2   (97% of mapped free space, within 6.5 m ...)
+  never seen           2.20 m2   total
+     of which          0.32 m2   in 1 pocket(s) big enough to drive to:
+         0.32 m2 around (0.11, -6.32)
+     and               1.88 m2   in slivers smaller than the robot,
+                                 mostly grazing angles along walls
+
+TAGS
+  found            3 of 12
+  missing          0, 1, 2, 3, 5, 7, 8, 10, 11
+
+WHAT TO DO ABOUT IT
+  ...
+```
+
+Read the last block first. It says which of the two causes was in play, and
+therefore which lever is worth pulling:
+
+| What it says | What it means | What to change |
+|---|---|---|
+| arena not fully explored | ran out of clock | exploration speed; or accept it |
+| mapped but never seen | drove past without looking | lower `patrol_spacing`, more sweeps |
+| both | both | more time helps, more sweeps help |
+| fully explored and fully seen | the tag was in frame and not decoded | detection range, motion blur, or the tag was facing away |
+
+`expected_tags` (12) is what lets it name the *missing* ids rather than only
+count what was found. Set it to 0 if the count is ever unannounced.
 
 The semantic map is written three ways because the required format is specified
 nowhere in the handouts. Hand over whichever the organisers ask for. **Ask them
@@ -335,14 +453,18 @@ early** — it is 100 points.
 
 Three numbers, in order of how much they matter.
 
-**`mission_duration`** — the deadline, in seconds, from the organisers. Passed
-on the command line. Returning on time is +150 and one minute late is −30, so
-this is the single most valuable thing to get right. If in doubt, set it
-*shorter* than announced.
+**`mission_duration`** — the deadline, in seconds. **240 for the real run**, and
+that is already the default in `param_mission.yaml`. Returning on time is +150
+and one minute late is −30, so this is the single most valuable thing to get
+right. If the organisers change it on the day, pass `mission_duration:=<seconds>`
+rather than editing the file, and if in doubt set it *shorter* than announced.
 
-**`laser_max_range`** — the LiDAR horizon in metres. The default 3.5 is correct
-for the LDS-01 and the simulator; the LDS-02 reaches further. Check it on the
-robot:
+**`laser_max_range`** — the LiDAR horizon in metres. On the robot this now
+defaults from `LDS_MODEL` (LDS-01 3.5, **LDS-02 8.0**, LDS-03 12.0) rather than
+being hardcoded to the simulator's 3.5, which threw away more than half of the
+real sensor's reach and produced a map that grew far more slowly than the
+hardware allowed. Nothing warned about it, because a shorter horizon is not an
+error. Verify it anyway:
 
 ```bash
 ros2 topic echo /scan --field range_max --once

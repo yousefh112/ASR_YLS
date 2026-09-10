@@ -15,6 +15,22 @@ Starter code: https://github.com/SESASR-Course/asr_summer_school_challenge
 
 ## 1. The task
 
+**The real run: 4 minutes, 12 tags, about 40 m².** Announced by the organisers; everything in
+`param_mission.yaml` is tuned to those three numbers, and `RUNBOOK.md` section 0 spells out what
+they change.
+
+That arena is a tenth the area of our practice maze and the window is 40% as long, which makes it
+a *different* problem rather than a smaller one. In 40 m² the LiDAR maps 96% of the arena from a
+standstill, so exploration finishes almost at once and **the run becomes a viewpoint problem**:
+pointing a 69° camera at twelve tag faces in 240 s. `patrol.py` is therefore the main behaviour of
+a real run, not the fallback it is in the maze. And because the tag count is now known,
+`stop_after_tags` is set to 12 — the one case where ending early is right, since it banks the +150
+return the moment there is nothing left to find.
+
+The simulation still runs the 20 × 20 m maze, deliberately: it is there to exercise the code, not
+to predict the score. A 240 s run of it finds three or four tags, and that is the maze being ten
+times too big.
+
 Explore an unknown indoor environment autonomously inside a fixed time limit. Detect as many
 AprilTags (tag36h11) as possible. Associate each with its unique ID and its position in the `map`
 frame. Produce a 2D occupancy grid and a semantic map. Avoid obstacles. Return to the starting

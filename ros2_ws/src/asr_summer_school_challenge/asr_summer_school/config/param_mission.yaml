@@ -22,8 +22,8 @@ mission_control:
     # ---------------- deadline ----------------
     # The one number the organisers have not published.  Set it from the
     # briefing before the run, here or with `mission_duration:=<seconds>`.
-    mission_duration: 600.0
-    startup_timeout: 120.0         # give SLAM, TF and Nav2 this long to come up
+    mission_duration: 240.0
+    startup_timeout: 90.0         # give SLAM, TF and Nav2 this long to come up
     loop_period: 0.4               # state machine tick
 
     # ---------------- return budget ----------------
@@ -45,7 +45,7 @@ mission_control:
     # of those moves.
     return_speed: 0.18
     return_safety_factor: 1.3
-    return_fixed_margin: 20.0      # cancel the goal, final approach, export
+    return_fixed_margin: 15.0      # cancel the goal, final approach, export
     budget_update_period: 3.0
 
     # ---------------- arrival ----------------
@@ -71,7 +71,14 @@ mission_control:
     # home, however much time is left.  0 disables it, which is the right
     # setting when the tag count is unknown - leaving early with tags unfound
     # costs 50 points each.  Set it only if the organisers announce the number.
-    stop_after_tags: 0
+    stop_after_tags: 12
+
+    # How many tags the arena holds.  The organisers announced twelve for the
+    # real run, which is what makes stop_after_tags above safe to use at all:
+    # ending early is only correct when the true count is known.  It also lets
+    # the coverage report name which ids are still missing rather than only
+    # counting what was found.  Set to 0 if the count is ever unannounced.
+    expected_tags: 12
 
     # ---------------- exploration ----------------
     # How long one frontier goal may run, scaled by how far away it is:
@@ -83,8 +90,8 @@ mission_control:
     # plus a frontier banned for frontier_failure_ttl.  Held at the old 0.15 so
     # goal patience is unchanged by that retune.
     goal_speed: 0.15
-    goal_timeout_min: 40.0
-    goal_timeout_max: 90.0
+    goal_timeout_min: 12.0
+    goal_timeout_max: 30.0
     goal_timeout_factor: 2.0
 
     # An empty frontier list has to persist this long, and then survive this
@@ -99,7 +106,7 @@ mission_control:
     # the arena is not going to explore itself while the robot pirouettes.
     #
     # Measured: spinning consumed 48% of a 516 s run.
-    no_frontier_timeout: 6.0
+    no_frontier_timeout: 3.0
     recovery_spins: 1
 
     # One turn before exploring starts, for the CAMERA: a tag may be visible
@@ -119,7 +126,7 @@ mission_control:
     spin_time_allowance: 25.0
 
     # Frontier ranking.  See frontier_policy.FrontierPolicy for what each does.
-    min_frontier_distance: 0.45
+    min_frontier_distance: 0.35
     # Stop driving at a frontier once the detector stops reporting one there:
     # the robot's own LiDAR filled it in on the way, and standing on the exact
     # centroid afterwards is pure cost.
@@ -129,19 +136,19 @@ mission_control:
     # when the map updates, so a shorter window mistakes that jump for the
     # frontier having been consumed and cancels a goal the robot was still
     # driving to.
-    consumed_checks: 12
-    blacklist_radius: 0.8
+    consumed_checks: 8
+    blacklist_radius: 0.5
     frontier_max_attempts: 2       # drive failures before a permanent ban
     # Planner refusals are counted apart from drive failures and their ban
     # lapses: early on, the costmap between the robot and a frontier is mostly
     # unknown and "no path" means "not yet", not "never".
     frontier_unreachable_attempts: 3
-    frontier_unreachable_ttl: 90.0
+    frontier_unreachable_ttl: 25.0
     # A frontier the robot drove at and failed to reach is set aside for much
     # longer - but not forever.  A run that permanently banned its last
     # frontier went home with the arena five percent explored, which costs far
     # more than the forty seconds a retry wastes.
-    frontier_failure_ttl: 240.0
+    frontier_failure_ttl: 45.0
     # ...and if every remaining frontier is banned, drop the whole blacklist
     # rather than declare the arena explored.  Twice, then believe it.
     blacklist_clears: 2
@@ -151,7 +158,7 @@ mission_control:
     candidates_to_plan: 5
 
     # Do not start a long trip across the arena on a thin time budget.
-    horizon_slack_threshold: 150.0
+    horizon_slack_threshold: 60.0
     min_horizon: 1.5
 
     # ---------------- patrol ----------------
@@ -168,7 +175,7 @@ mission_control:
     # A candidate closer than patrol_spacing to somewhere already swept is not
     # worth the trip - at 2.0 m with a 55 degree camera the sweeps overlap
     # comfortably without re-photographing the same corner.
-    patrol_spacing: 2.0
+    patrol_spacing: 1.4
     patrol_clearance: 0.25         # obstacle-free disc a patrol point needs
     # Metres of detour accepted per metre of extra novelty.  Nearest-first
     # re-sweeps one corner; farthest-first crosses the arena for a single look.
@@ -182,7 +189,7 @@ mission_control:
     # new one and much more than parking at the start with time on the clock:
     # a 55 degree camera still photographs different walls from 1 m away.
     # Below this the robot is effectively standing everywhere it can already.
-    patrol_min_spacing: 0.5
+    patrol_min_spacing: 0.35
 
     # Rotate on arrival at each frontier so the forward-facing camera sweeps
     # the area instead of only the direction of travel.  The camera sees about
@@ -204,7 +211,7 @@ mission_control:
     # costs about 3 s (5.30 rad at 1.9 rad/s) rather than 7, and spin_in_place
     # already aborts the moment must_return() flips, so this gate is a backstop
     # against starting one that cannot finish, not a time-management policy.
-    scan_rotation_min_slack: 20.0
+    scan_rotation_min_slack: 10.0
 
     # ---------------- frames and output ----------------
     map_frame: 'map'
@@ -243,7 +250,7 @@ tag_manager:
     # not by what can be decoded precisely.  Observations are weighted 1/r^2,
     # so one close sighting later outweighs several distant ones and the
     # estimate converges on the good measurement.
-    max_detection_range: 5.0
+    max_detection_range: 6.5
     gate_distance: 0.75            # reject an observation this far off the mean
     gate_patience: 5               # ...until this many in a row say otherwise
     publish_markers: true
