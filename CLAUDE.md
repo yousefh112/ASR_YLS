@@ -243,6 +243,9 @@ ros2_ws/src/
     turtlebot3_simulations/   vendored, do not edit
     RUNBOOK.md                how to run it
     sim_run.sh, sim_stop.sh   one-command simulated run, headless and scored
+    robot_bringup.sh          the robot's terminal 1, with the output kept
+    robot_run.sh              the robot's terminal 2: logs, a graph snapshot
+                              either side of the run, and one tarball to send
     results/                  measured scores and a reference set of deliverables
     VENDORED.md               upstreams and pinned commits for the three above
   third_party/                vendored apriltag stack, built from source

@@ -138,6 +138,21 @@ with a message naming the missing one. Without that check an unset
 `CAMERA_MODEL` surfaces as a `KeyError` from inside `turtlebot3_perception`
 several seconds in, with half the stack already up.
 
+**Use the two logging wrappers, not the bare launches.** They are the same
+commands with everything they print kept, plus a snapshot of the graph either
+side of the run and a single tarball at the end. A run whose only record was a
+terminal that has since been closed cannot be diagnosed afterwards, and there is
+no second attempt on the day.
+
+```bash
+./robot_bringup.sh myrun                        # terminal 1, leave running
+./robot_run.sh     myrun <seconds>              # terminal 2
+```
+
+Both take the same run tag, and everything lands in `~/asr_mission_output/myrun/`.
+The bare launches below are what those wrappers run, for when something needs
+driving by hand.
+
 **Terminal 1 — robot bringup** (base, LiDAR, camera, AprilTag, SLAM, frontier
 detector; no Nav2):
 
@@ -166,6 +181,47 @@ start point and leave it: touching it costs 50 points.
 **To stop early and still keep the deliverables**, Ctrl-C the mission terminal
 once. The export runs from a `finally` block, so the map and the semantic map
 are written even on an interrupt. Two Ctrl-Cs kill it before that.
+
+### 3.2b What a run leaves behind, and what to send for analysis
+
+`robot_run.sh` finishes by printing the path to a single tarball:
+
+```text
+one file to hand over: ~/asr_mission_output/myrun/myrun-20260910-1530.tar.gz
+```
+
+**That tarball is the thing to send.** It contains everything needed to work out
+what a run did without having been there:
+
+| File | Why it matters |
+|---|---|
+| `mission.log` | Every goal, every sweep, the frontier reasoning, the return budget at each decision, and the final `mission over` line |
+| `bringup.log` | Where the quiet failures surface — the LiDAR's real range, `scan_preprocess` warnings, which frames AprilTag parented to |
+| `diagnostics.txt` | The graph before and after: node and topic lists, publish rates, `/scan` vs `/scan_filtered` `range_max`, the TF chain, the pre-flight report, and the environment variables |
+| `mission_report.json` | Timings, goal and patrol counts, camera sweeps, map statistics, any detected SLAM jump, the final distance from home |
+| `map.pgm` / `map.yaml` | The occupancy grid deliverable, **+100** |
+| `semantic_map.yaml/json/csv` | The tag deliverable, **+100** |
+| `mission_overlay.png` | The grid with tags, start and finish drawn on — the fastest way to see what happened |
+
+Copy it off the robot with:
+
+```bash
+scp students@192.168.10.1<NN>:~/asr_mission_output/myrun/myrun-*.tar.gz .
+```
+
+Two numbers in `diagnostics.txt` are worth reading yourself before sending it,
+because they answer questions this repo has been guessing at:
+
+- **`echo /scan range_max`** — the LiDAR's true horizon. `3.5` means an LDS-01
+  and the current `max_laser_range` is right; anything larger means an LDS-02
+  and there is coverage being left on the table ([section 5](#5-tuning-for-the-real-arena)).
+- **`echo /scan_filtered range_max`** — should be `25.0`. If it is not, the scan
+  preprocessing is not in the pipeline, and that is the difference between a
+  working system and one that maps a four-metre box.
+
+There is no `score_report.py` step on the robot. It scores against tag
+coordinates parsed out of the Gazebo world file, and no such file exists for a
+physical arena — running it would score the arena we are not in.
 
 ### 3.3 Pre-flight
 
