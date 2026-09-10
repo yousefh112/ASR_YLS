@@ -237,7 +237,8 @@ the pipeline, never to tune constants.**
 |---|---|
 | Robot wifi | SSID `SESASR_WiFi`, password `LED05_2024` |
 | Auditorium wifi | SSID `Auditorium`, password `4ud1t0r1um` |
-| Robot PC | `192.168.10.1XX`, host `nucXX`, user `students`, password `sesasr` |
+| Robot PC | **`192.168.10.111`**, host `nuc11`, user `students`, password `sesasr` |
+| Our robot number | **11** — sets both `ROS_DOMAIN_ID` and the last octet above |
 | Course share | https://naspic4ser.polito.it/files/sharing/ code `CoxrAN2A1` |
 
 Exact commands are in the [runbook](ros2_ws/src/asr_summer_school_challenge/RUNBOOK.md#3-run-on-the-robot).
@@ -420,5 +421,7 @@ four required variables up front.
 
 1. **Semantic map format.** Worth +100 and specified nowhere. We export YAML, JSON and CSV to cover
    it, but ask. Highest priority.
-2. Deadline duration for the final run, and the physical arena layout.
-3. Our robot number, which sets both `ROS_DOMAIN_ID` and the NUC address.
+2. ~~Deadline duration for the final run~~ — **answered: 240 s, 12 tags, ~40 m².**
+   The physical arena layout is still unseen.
+3. ~~Our robot number~~ — **answered: 11.** `ROS_DOMAIN_ID=11`, NUC at
+   `192.168.10.111`.

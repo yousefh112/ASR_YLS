@@ -170,17 +170,33 @@ reference set of deliverables are in [`results/`](results/).
 
 ## 3. Run on the robot
 
+**We are robot 11.** Everything below is written with that filled in, so the
+commands can be pasted as they stand.
+
+| | |
+|---|---|
+| robot number | **11** |
+| `ROS_DOMAIN_ID` | **11** |
+| robot PC | **`192.168.10.111`**, host `nuc11` |
+| login | `students` / `sesasr` |
+| robot wifi | `SESASR_WiFi` / `LED05_2024` |
+
+The number drives two things at once — the domain id and the last octet of the
+address (`192.168.10.1` + the number, zero-padded) — and `setup_env.sh` derives
+both from the single argument, so there is only ever one place to change it. If
+we are reassigned, pass the new number instead and nothing else moves.
+
 ### 3.1 Your laptop, once per session
 
 ```bash
-source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh <robot number>
+source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh 11
 ```
 
 **No router on the laptop.** This shell is configured as a Zenoh *client* whose
 endpoint is the robot, so the router has to be running on the robot — see
 [3.2](#32-on-the-robot-over-ssh). Starting `rmw_zenohd` here instead listens on
 the laptop, the client still finds nothing at the robot's address, and it fails
-as `Unable to connect to any of [tcp/192.168.10.1NN:7447]`.
+as `Unable to connect to any of [tcp/192.168.10.111:7447]`.
 
 Everyone on the team must be on `rmw_zenoh_cpp`. Zenoh and Fast DDS cannot see
 each other, and the symptom is an empty `ros2 topic list` rather than an error.
@@ -188,9 +204,9 @@ each other, and the symptom is an empty `ros2 topic list` rather than an error.
 ### 3.2 On the robot, over SSH
 
 ```bash
-ssh students@192.168.10.1<NN>                # password: sesasr
+ssh students@192.168.10.111               # password: sesasr
 
-source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard <robot number>
+source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard 11
 ```
 
 `onboard` differs from the laptop form in one thing that matters: the robot
@@ -286,7 +302,7 @@ what a run did without having been there:
 Copy it off the robot with:
 
 ```bash
-scp students@192.168.10.1<NN>:~/asr_mission_output/myrun/myrun-*.tar.gz .
+scp students@192.168.10.111:~/asr_mission_output/myrun/myrun-*.tar.gz .
 ```
 
 Two numbers in `diagnostics.txt` are worth reading yourself before sending it,
@@ -543,7 +559,7 @@ and `scan_rotation_min_slack` control the camera sweep at each frontier.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `ros2 topic list` empty | Middleware mismatch, or a stale daemon | Check `RMW_IMPLEMENTATION` on both ends; `pkill -9 -f ros && ros2 daemon stop` |
-| `Unable to connect to any of [tcp/192.168.10.1NN:7447]`, or an empty topic list from the laptop | No Zenoh router running **on the robot**. The laptop is a client aimed at the robot's `:7447`; a router started on the laptop listens in the wrong place | SSH to the robot and run `ros2 run rmw_zenoh_cpp rmw_zenohd`, leave it up, then retry. See [3.2](#32-on-the-robot-over-ssh) |
+| `Unable to connect to any of [tcp/192.168.10.111:7447]`, or an empty topic list from the laptop | No Zenoh router running **on the robot**. The laptop is a client aimed at the robot's `:7447`; a router started on the laptop listens in the wrong place | SSH to the robot and run `ros2 run rmw_zenoh_cpp rmw_zenohd`, leave it up, then retry. See [3.2](#32-on-the-robot-over-ssh) |
 | Mission starts, timer never advances, robot never returns | `use_sim_time` true on the robot, so every node waits on a `/clock` nothing publishes | `mission.launch.py` now defaults it to false. If overridden, drop `use_sim_time:=true` |
 | Robot explores fine but finds few tags | Detector range shorter than `max_detection_range`, or the sweep is blurring | Walk a tag back from the camera and watch `/camera/detections` for the real range; if detections vanish only while sweeping, lower `max_rotational_vel` |
 | "exploration complete" in seconds | `/frontier_centroids` silent, or every centroid rejected | The mission logs the reason. Check `ros2 topic echo /frontier_centroids --once` |
