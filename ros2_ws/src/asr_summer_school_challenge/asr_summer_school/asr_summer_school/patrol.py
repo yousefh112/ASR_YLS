@@ -126,6 +126,8 @@ def choose_patrol_target(points, swept, robot, min_spacing=2.0,
 
     Returns (x, y) or None when nothing is worth visiting.
     """
+    if min_spacing <= 0.0:
+        return None
     best, best_score = None, None
     for point in points:
         novelty = nearest_distance(point, swept)

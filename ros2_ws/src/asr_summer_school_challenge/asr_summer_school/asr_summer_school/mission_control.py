@@ -198,6 +198,8 @@ class MissionSupport(Node):
         self.declare_parameter('patrol_clearance', 0.25)
         self.declare_parameter('patrol_travel_weight', 0.35)
         self.declare_parameter('patrol_max_failures', 4)
+        # Below this the robot is standing everywhere it can already.
+        self.declare_parameter('patrol_min_spacing', 0.5)
         # Rotate on arrival at a frontier so the forward-facing camera sweeps
         # the whole area rather than only the direction of travel.  The camera
         # sees about 60 degrees, so a tag on a wall the robot drove past
@@ -338,6 +340,7 @@ class MissionControl:
         # degree camera only photographs it from one.  These are the places
         # already looked around from, so the patrol can go somewhere else.
         self.swept = []
+        self.patrolling = False
         self.patrol_goals = 0
         self.patrol_failures = 0
 
@@ -767,11 +770,39 @@ class MissionControl:
         # The same horizon the frontier search obeys: late in the run a patrol
         # point across the arena is a trip the return budget cannot afford.
         horizon = self.frontier_horizon()
-        return choose_patrol_target(
-            points, self.swept, (current[0], current[1]),
-            min_spacing=spacing,
-            travel_weight=self.support.param('patrol_travel_weight'),
-            max_range=horizon)
+        travel_weight = self.support.param('patrol_travel_weight')
+        # Clamped positive: the loop below halves the spacing toward this floor,
+        # so a floor of 0 - or a negative one from a typo - would keep halving
+        # until the value denormalised to zero, about a thousand passes over the
+        # whole candidate list, inside the control loop.
+        floor = max(0.1, self.support.param('patrol_min_spacing'))
+
+        # Relax the spacing rather than give up.  At the full spacing the answer
+        # goes to None as soon as the sweeps blanket the known map - 23 sweeps
+        # claiming a 2 m disc each cover 289 m2, so a 126 m2 map is "all swept"
+        # long before the arena is out of tags.  A measured run stopped there
+        # with 124 s of the window left and six tags unfound, which is the exact
+        # outcome patrolling exists to prevent.
+        #
+        # A closer look is worth less than a new one, but it is worth far more
+        # than parking at the start: the camera sees 55 degrees, so a second
+        # visit from 1 m away still photographs a different set of walls.  Only
+        # a spacing below the floor means the robot is effectively standing
+        # everywhere it can already, and that is the one honest stop.
+        while spacing >= floor:
+            target = choose_patrol_target(
+                points, self.swept, (current[0], current[1]),
+                min_spacing=spacing, travel_weight=travel_weight,
+                max_range=horizon)
+            if target is not None:
+                if spacing < self.support.param('patrol_spacing'):
+                    self.log.info(
+                        'known space is all swept at {:.1f} m; looking again '
+                        'from {:.1f} m spacing rather than going home early'
+                        .format(self.support.param('patrol_spacing'), spacing))
+                return target
+            spacing /= 2.0
+        return None
 
     def nothing_to_explore(self, now):
         """Handle a selection that came back empty.
@@ -785,6 +816,23 @@ class MissionControl:
         seconds, and then survive a full turn on the spot, which both refreshes
         the map and often exposes a frontier that a stale costmap was hiding.
         """
+        # Once patrolling has started, the frontier list being empty is the
+        # established state, not news.  Going back through the 6 s confirmation
+        # wait before every patrol goal would spend it over and over for an
+        # answer already known.
+        if self.patrolling:
+            current = self.pose()
+            if current is not None:
+                patrol = self.patrol_target(current)
+                if patrol is not None and self.dispatch(patrol, current,
+                                                        kind='patrol'):
+                    return
+            self.patrolling = False
+            self.stop_reason = 'nowhere left unswept to look from'
+            self.log.info(self.stop_reason)
+            self.state = State.RETURN
+            return
+
         if self.empty_since is None:
             self.empty_since = now
             self.log.info('no frontier to drive to: {}'.format(
@@ -800,12 +848,18 @@ class MissionControl:
                 'no frontiers for {:.0f} s ({}); recovery {}/{}'.format(
                     now - self.empty_since, self.selector.last_rejection,
                     self.recoveries_used, int(self.support.param('recovery_spins'))))
+            # The costmap wipe is the part that can actually change the answer.
+            # The turn cannot: slam_toolbox processes no scan while the robot is
+            # not translating, so a stationary rotation leaves /map byte for
+            # byte identical and the detector will return exactly what it
+            # returned before.  It is kept only because it is another look for
+            # the camera, and a tag is worth 50 points.
             try:
                 self.navigator.clearAllCostmaps()
             except Exception as error:
                 self.log.debug('costmap clear failed: {}'.format(error))
-            self.spin_in_place(6.28, reason='looking for frontiers')
-            # Give the detector a fresh map to work from before judging again.
+            self.spin_in_place(self.support.param('scan_rotation'),
+                               reason='another look while the costmaps refill')
             self.empty_since = self.clock.elapsed()
             return
 
@@ -845,9 +899,10 @@ class MissionControl:
                     'no frontiers left, but {:.0f} s of slack: sweeping for '
                     'tags from somewhere the camera has not looked'
                     .format(self.clock.slack()))
-                self.dispatch(patrol, current, kind='patrol')
-                self.empty_since = None
-                return
+                if self.dispatch(patrol, current, kind='patrol'):
+                    self.patrolling = True
+                    self.empty_since = None
+                    return
 
         self.stop_reason = (
             'exploration complete, no frontiers left and nowhere unswept '
@@ -933,6 +988,13 @@ class MissionControl:
         # in the run got no recovery at all and the mission ended early.
         self.empty_since = None
         self.recoveries_used = 0
+        # Back to real exploring.  Patrolling drives, driving translates, and
+        # translation is the one thing that gets slam_toolbox to process a scan
+        # - so a patrol leg genuinely can open up new frontiers.  Dropping the
+        # flag puts the next drought back through the full confirmation ladder,
+        # so a transient empty list cannot divert the robot onto a patrol trip
+        # when waiting six seconds would have produced a real frontier.
+        self.patrolling = False
         self.dispatch(target, current)
 
     # ------------------------------------------------------------------ #

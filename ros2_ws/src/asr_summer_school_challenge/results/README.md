@@ -17,9 +17,22 @@ coordinates parsed out of the world file itself. Reproduce any of them with:
 | sweep halved | π | 4 | 24/24 | 531 s | 0.377 m | 0.207 m | 650 |
 | sweep off | none | 4 | 17/22 | 502 s | 0.677 m | 0.208 m | 650 |
 
-The sweep rows are an A/B, not four attempts at the same thing — see
-[the reasoning in PROJECT_GUIDE](../../../PROJECT_GUIDE.md#7-before-the-real-run).
-Cutting the sweep saves 40–70 s and costs the localisation, not the tag count.
+**Read that table as a distribution, not as four measurements of four things.**
+It was originally presented as an A/B showing the camera sweep buys localisation.
+It does not, and the mechanism given for it — a full turn feeding slam_toolbox
+pose-graph nodes — does not exist: `shouldProcessScan` gates on translation
+only, so a stationary turn is discarded before the mapper sees it (CLAUDE.md §2).
+
+What the four rows actually show is **how noisy one run is**. Same arena, same
+stack, tag counts 5/4/4/4 and scores 730/680/650/650. The accuracy award is
+bimodal — it is 30 or it is 0, depending on whether a particular loop closure
+lands — and it takes the return distance with it (0.03–0.05 m against
+0.21 m). Any single run is therefore worth ±40 points of noise before any change
+is applied, and **no conclusion about tag count or accuracy can be drawn from
+n=1.** The original sweep conclusion was exactly that mistake.
+
+Low-variance metrics — goals dispatched, area mapped, seconds of the window
+actually used — are the ones to compare between configurations.
 
 ## Shorter and early-exit runs
 

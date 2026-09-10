@@ -176,6 +176,13 @@ mission_control:
     # Give up on patrolling after this many unreachable patrol points, rather
     # than spending the endgame failing to reach the same place.
     patrol_max_failures: 4
+    # When every candidate is within patrol_spacing of somewhere already swept,
+    # the spacing is halved and the question asked again, down to this floor,
+    # instead of declaring the hunt over.  A closer look is worth less than a
+    # new one and much more than parking at the start with time on the clock:
+    # a 55 degree camera still photographs different walls from 1 m away.
+    # Below this the robot is effectively standing everywhere it can already.
+    patrol_min_spacing: 0.5
 
     # Rotate on arrival at each frontier so the forward-facing camera sweeps
     # the area instead of only the direction of travel.  The camera sees about

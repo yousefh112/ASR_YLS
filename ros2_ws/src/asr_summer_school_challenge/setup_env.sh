@@ -57,7 +57,13 @@ case "${1:-}" in
     export ZENOH_CONFIG_OVERRIDE="mode=\"client\";connect/endpoints=[\"tcp/192.168.10.1$(printf '%02d' "$1"):7447\"]"
     unset CAMERA_MODEL          # the laptop starts no camera driver
     echo "ASR environment: LAPTOP -> ROBOT $1 at 192.168.10.1$(printf '%02d' "$1")"
-    echo "  remember to run, in its own terminal:  ros2 run rmw_zenoh_cpp rmw_zenohd"
+    # Do NOT start a router here.  This shell is a zenoh CLIENT pointing at the
+    # robot, and the router belongs at the endpoint it points to - on the robot.
+    # A router started here listens on the laptop, nothing connects to it, and
+    # the failure reads "Unable to connect to any of [tcp/192.168.10.1NN:7447]"
+    # or, worse, an empty `ros2 topic list` with no error at all.
+    echo "  the ROBOT hosts the router: run 'ros2 run rmw_zenoh_cpp rmw_zenohd'"
+    echo "  over SSH on the robot, not here, before starting the bringup."
     ;;
   *)
     echo "usage: source setup_env.sh sim"

@@ -114,6 +114,10 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_mission_logic test/test_mission_logic.py)
   ament_add_pytest_test(test_patrol test/test_patrol.py)
+  # The patrol state transitions specifically: in a 600 s run of the 20 x 20 m
+  # maze the frontier search never runs dry, so this path would otherwise ship
+  # having never once executed.
+  ament_add_pytest_test(test_patrol_wiring test/test_patrol_wiring.py)
 endif()
 
 ament_package()

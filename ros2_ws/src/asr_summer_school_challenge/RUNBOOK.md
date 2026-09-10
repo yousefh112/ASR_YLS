@@ -98,8 +98,13 @@ reference set of deliverables are in [`results/`](results/).
 
 ```bash
 source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh <robot number>
-ros2 run rmw_zenoh_cpp rmw_zenohd            # leave this running
 ```
+
+**No router on the laptop.** This shell is configured as a Zenoh *client* whose
+endpoint is the robot, so the router has to be running on the robot — see
+[3.2](#32-on-the-robot-over-ssh). Starting `rmw_zenohd` here instead listens on
+the laptop, the client still finds nothing at the robot's address, and it fails
+as `Unable to connect to any of [tcp/192.168.10.1NN:7447]`.
 
 Everyone on the team must be on `rmw_zenoh_cpp`. Zenoh and Fast DDS cannot see
 each other, and the symptom is an empty `ros2 topic list` rather than an error.
@@ -115,6 +120,18 @@ source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard <r
 `onboard` differs from the laptop form in one thing that matters: the robot
 hosts the Zenoh router, so it must not be configured as a client pointing at
 itself.
+
+**Start the router here, before anything else, and leave it running:**
+
+```bash
+ros2 run rmw_zenoh_cpp rmw_zenohd            # its own SSH session
+```
+
+Nothing on either machine discovers anything until this is up — the laptop is a
+client aimed at this robot's `:7447`, and with no router listening there every
+`ros2` command on the laptop either fails to connect or returns an empty topic
+list. This is the single most likely reason for "nothing works" at the start of
+a session.
 
 `bringup.launch.py` checks all four of those before starting anything and stops
 with a message naming the missing one. Without that check an unset
@@ -333,6 +350,9 @@ and `scan_rotation_min_slack` control the camera sweep at each frontier.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `ros2 topic list` empty | Middleware mismatch, or a stale daemon | Check `RMW_IMPLEMENTATION` on both ends; `pkill -9 -f ros && ros2 daemon stop` |
+| `Unable to connect to any of [tcp/192.168.10.1NN:7447]`, or an empty topic list from the laptop | No Zenoh router running **on the robot**. The laptop is a client aimed at the robot's `:7447`; a router started on the laptop listens in the wrong place | SSH to the robot and run `ros2 run rmw_zenoh_cpp rmw_zenohd`, leave it up, then retry. See [3.2](#32-on-the-robot-over-ssh) |
+| Mission starts, timer never advances, robot never returns | `use_sim_time` true on the robot, so every node waits on a `/clock` nothing publishes | `mission.launch.py` now defaults it to false. If overridden, drop `use_sim_time:=true` |
+| Robot explores fine but finds few tags | Detector range shorter than `max_detection_range`, or the sweep is blurring | Walk a tag back from the camera and watch `/camera/detections` for the real range; if detections vanish only while sweeping, lower `max_rotational_vel` |
 | "exploration complete" in seconds | `/frontier_centroids` silent, or every centroid rejected | The mission logs the reason. Check `ros2 topic echo /frontier_centroids --once` |
 | Robot never moves, Nav2 active | No path to any frontier | `ros2 topic echo /global_costmap/costmap --once`; check the map has free space |
 | Map stops growing | `/scan_filtered` dead | `ros2 topic hz /scan_filtered`. The whole stack reads it, so the bringup is configured to shut down if `scan_preprocess` exits rather than let everything run blind |
