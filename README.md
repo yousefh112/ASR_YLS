@@ -21,8 +21,17 @@ One repository, one clone — no submodules to initialise. Then:
 
 ```bash
 # a full simulated mission, headless, scored when it finishes
-cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge && ./sim_run.sh
+source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh sim
+sim_run.sh                      # 240 s, the announced competition window
 ```
+
+Sourcing `setup_env.sh` also puts `sim_run.sh`, `robot_bringup.sh` and
+`mission_run.sh` on `PATH`, so they run from any directory.
+
+**The real run is 4 minutes, 12 tags, about 40 m².** The simulation still uses
+the 400 m² practice maze, deliberately — it exercises the code, it does not model
+the arena, so a 240 s run of it finds three or four tags. See
+[RUNBOOK section 0](ros2_ws/src/asr_summer_school_challenge/RUNBOOK.md#0-the-brief).
 
 ## The documents
 

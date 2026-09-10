@@ -73,7 +73,8 @@ found**.
 
 The mistake was treating a finished map as a finished search. **They are not the same job.** The
 LiDAR sees 360°, so a wall gets mapped from whatever heading the robot happened to have; the
-camera sees 55°, so that same wall is only *photographed* if the robot was pointing at it.
+camera sees 59° in Gazebo and 69° on the robot, so that same wall is only *photographed*
+if the robot was pointing at it.
 Coverage of positions is not coverage of viewing directions, and only the second one finds tags.
 
 So when frontiers run out and the clock has not, the robot now **patrols**: it drives to known

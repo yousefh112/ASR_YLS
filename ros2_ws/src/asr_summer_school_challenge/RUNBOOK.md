@@ -63,7 +63,7 @@ them is a place where a number that is right in one is wrong in the other.
 The camera rows are the ones to watch. Gazebo renders **no motion blur and no
 rolling shutter**, so it cannot tell you anything about whether a 1.9 rad/s sweep
 smears tags past decoding — that is a hardware check, in
-[3.3](#the-four-things-simulation-structurally-cannot-tell-us).
+[3.2](#the-four-things-simulation-structurally-cannot-tell-us).
 
 The decimate split exists so the two are comparable at all: the same `decimate`
 against two different sensor resolutions is two different detectors. What is
@@ -229,165 +229,72 @@ and both are worth confirming before the scored run:
 If wifi is unreliable on the day, run `mission_run.sh` over SSH on the robot
 instead — everything still works, the files simply land there and need one `scp`.
 
-### 3.1 Your laptop, once per session
+### 3.1 The run, step by step
+
+Four steps, in this order. Three terminals: two SSH sessions on the robot, one on
+your laptop. Sourcing `setup_env.sh` puts the run scripts on `PATH`, so none of
+these needs a `cd` or a `./`.
+
+**Step 1 — the robot's Zenoh router.** Nothing on either machine discovers
+anything until this is up, and it is the single most likely reason for "nothing
+works" at the start of a session.
+
+```bash
+ssh students@192.168.10.111                      # password: sesasr
+source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard 11
+ros2 run rmw_zenoh_cpp rmw_zenohd                # leave running
+```
+
+`onboard` differs from the laptop form in the one thing that matters: the robot
+*hosts* the router, so it must not be configured as a client pointing at itself.
+
+**Step 2 — the robot's drivers**, in a second SSH session. Base, LiDAR, camera,
+AprilTag, SLAM and the frontier detector. No Nav2.
+
+```bash
+ssh students@192.168.10.111
+source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard 11
+robot_bringup.sh myrun                           # leave running
+#   no joypad plugged into the ROBOT?  add  teleop:=false
+```
+
+Check the first line `scan_preprocess` prints: it reports the LiDAR's actual
+range and warns if that disagrees with what SLAM was configured for. See
+[section 5](#5-tuning-for-the-real-arena).
+
+**Step 3 — your laptop.** Once per session:
 
 ```bash
 source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh 11
 ```
 
-**No router on the laptop.** This shell is configured as a Zenoh *client* whose
-endpoint is the robot, so the router has to be running on the robot — see
-[3.2](#32-on-the-robot-over-ssh). Starting `rmw_zenohd` here instead listens on
-the laptop, the client still finds nothing at the robot's address, and it fails
-as `Unable to connect to any of [tcp/192.168.10.111:7447]`.
+**Do not start a router here.** This shell is a Zenoh *client* whose endpoint is
+the robot, so the router belongs at that endpoint — step 1. Starting `rmw_zenohd`
+on the laptop listens in the wrong place, the client still finds nothing at the
+robot's address, and it fails as
+`Unable to connect to any of [tcp/192.168.10.111:7447]`.
 
 Everyone on the team must be on `rmw_zenoh_cpp`. Zenoh and Fast DDS cannot see
 each other, and the symptom is an empty `ros2 topic list` rather than an error.
 
-### 3.2 On the robot, over SSH
+Then run [pre-flight](#32-pre-flight) before going any further.
+
+**Step 4 — the mission, from the laptop**, so the deliverables are written there:
 
 ```bash
-ssh students@192.168.10.111               # password: sesasr
-
-source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard 11
-```
-
-`onboard` differs from the laptop form in one thing that matters: the robot
-hosts the Zenoh router, so it must not be configured as a client pointing at
-itself.
-
-**Start the router here, before anything else, and leave it running:**
-
-```bash
-ros2 run rmw_zenoh_cpp rmw_zenohd            # its own SSH session
-```
-
-Nothing on either machine discovers anything until this is up — the laptop is a
-client aimed at this robot's `:7447`, and with no router listening there every
-`ros2` command on the laptop either fails to connect or returns an empty topic
-list. This is the single most likely reason for "nothing works" at the start of
-a session.
-
-`bringup.launch.py` checks all four of those before starting anything and stops
-with a message naming the missing one. Without that check an unset
-`CAMERA_MODEL` surfaces as a `KeyError` from inside `turtlebot3_perception`
-several seconds in, with half the stack already up.
-
-**Use the logging wrappers, not the bare launches.** They are the same commands
-with everything they print kept, plus a snapshot of the graph either side of the
-run and a single tarball at the end. A run whose only record was a terminal that
-has since been closed cannot be diagnosed afterwards, and there is no second
-attempt on the day.
-
-Sourcing `setup_env.sh` puts these scripts on `PATH`, so they run from any
-directory — there is no need to `cd` into the repo first, and no `./`. (It also
-exports `ASR_DIR` if you want the path itself.)
-
-Three terminals in total, two of them SSH sessions on the robot:
-
-```bash
-# ROBOT, ssh session 1 - the router.  Leave it running.
-ros2 run rmw_zenoh_cpp rmw_zenohd
-
-# ROBOT, ssh session 2 - drivers, SLAM, camera, apriltag.  Leave it running.
-robot_bringup.sh myrun
-
-# LAPTOP - Nav2 and the mission.  The results land HERE.
 mission_run.sh myrun 240
 ```
 
-Use the same run tag on both. `robot_bringup.sh` writes `bringup.log` into
-`~/asr_mission_output/myrun/` **on the robot**; `mission_run.sh` writes
-everything else into `~/asr_mission_output/myrun/` **on your laptop**, which is
-the point of the split — the scored deliverables need no copying.
+Put the robot on the start point first and then leave it alone: touching it costs
+50 points. It sweeps the camera once on the spot — for tags, not for the map; a
+stationary turn feeds slam_toolbox nothing — and then explores.
 
-The bare launches below are what those wrappers run, for when something needs
-driving by hand.
+Use the same run tag in steps 2 and 4. `robot_bringup.sh` writes `bringup.log`
+into `~/asr_mission_output/myrun/` **on the robot**; `mission_run.sh` writes
+everything else into `~/asr_mission_output/myrun/` **on your laptop** — which is
+the point of the split: the scored deliverables need no copying.
 
-**Terminal 1 — robot bringup** (base, LiDAR, camera, AprilTag, SLAM, frontier
-detector; no Nav2). On the robot:
-
-```bash
-ros2 launch asr_summer_school bringup.launch.py
-# no joypad plugged into the ROBOT?  add  teleop:=false
-```
-
-Check the first line `scan_preprocess` prints. It reports the LiDAR's actual
-range, and warns if that disagrees with what SLAM was configured for — see
-[section 5](#5-tuning-for-the-real-arena).
-
-**Terminal 2 — Nav2 and the mission. On your laptop**, so the deliverables are
-written there:
-
-```bash
-ros2 launch asr_summer_school mission.launch.py \
-    mission_duration:=240.0 \
-    output_directory:=~/asr_mission_output/<run name>
-```
-
-`use_sim_time` is no longer passed: it defaults to false, which is what the robot
-needs. 240 is the announced window — pass a different number only if the
-organisers change it. Give the run its own subdirectory, or its files land loose
-in the parent alongside every other run's.
-
-The robot sweeps the camera once on the spot — for tags, not for the map; a
-stationary turn feeds slam_toolbox nothing — then explores. Put it at the
-start point and leave it: touching it costs 50 points.
-
-**To stop early and still keep the deliverables**, Ctrl-C the mission terminal
-once. The export runs from a `finally` block, so the map and the semantic map
-are written even on an interrupt. Two Ctrl-Cs kill it before that.
-
-### 3.2b What a run leaves behind, and what to send for analysis
-
-`mission_run.sh` finishes by printing the path to a single tarball:
-
-```text
-one file to hand over: ~/asr_mission_output/myrun/myrun-20260910-1530.tar.gz
-```
-
-**That tarball is the thing to send.** It contains everything needed to work out
-what a run did without having been there:
-
-| File | Why it matters |
-|---|---|
-| `mission.log` | Every goal, every sweep, the frontier reasoning, the return budget at each decision, and the final `mission over` line |
-| `bringup.log` | Where the quiet failures surface — the LiDAR's real range, `scan_preprocess` warnings, which frames AprilTag parented to |
-| `diagnostics.txt` | The graph before and after: node and topic lists, publish rates, `/scan` vs `/scan_filtered` `range_max`, the TF chain, the pre-flight report, and the environment variables |
-| `mission_report.json` | Timings, goal and patrol counts, camera sweeps, map statistics, any detected SLAM jump, the final distance from home |
-| `map.pgm` / `map.yaml` | The occupancy grid deliverable, **+100** |
-| `semantic_map.yaml/json/csv` | The tag deliverable, **+100** |
-| `mission_overlay.png` | The grid with tags, start and finish drawn on — the fastest way to see what happened |
-
-If you ran `mission_run.sh` on your laptop, as [3.0](#30-which-machine-runs-what-and-why)
-recommends, that tarball is already on your laptop and there is nothing to copy.
-The only thing still on the robot is `bringup.log`:
-
-```bash
-scp students@192.168.10.111:~/asr_mission_output/myrun/bringup.log .
-```
-
-If instead you ran the mission over SSH on the robot, fetch the whole bundle:
-
-```bash
-scp students@192.168.10.111:~/asr_mission_output/myrun/myrun-*.tar.gz .
-```
-
-Two numbers in `diagnostics.txt` are worth reading yourself before sending it,
-because they answer questions this repo has been guessing at:
-
-- **`echo /scan range_max`** — the LiDAR's true horizon. `3.5` means an LDS-01
-  and the current `max_laser_range` is right; anything larger means an LDS-02
-  and there is coverage being left on the table ([section 5](#5-tuning-for-the-real-arena)).
-- **`echo /scan_filtered range_max`** — should be `25.0`. If it is not, the scan
-  preprocessing is not in the pipeline, and that is the difference between a
-  working system and one that maps a four-metre box.
-
-There is no `score_report.py` step on the robot. It scores against tag
-coordinates parsed out of the Gazebo world file, and no such file exists for a
-physical arena — running it would score the arena we are not in.
-
-### 3.3 Pre-flight
+### 3.2 Pre-flight
 
 One command, run after the bringup:
 
@@ -474,6 +381,87 @@ ros2 topic echo /scan --field range_max --once
 Raising it is **not** free — read the header of `scan_preprocess.py` first, and
 note that `slam_toolbox.launch.py` overwrites this key, so editing the YAML
 alone does nothing.
+
+### 3.3 The bare launches underneath
+
+The wrappers above are these two commands with their output kept, plus a
+snapshot of the graph either side of the run and a tarball at the end. A run
+whose only record was a terminal that has since been closed cannot be diagnosed
+afterwards, and there is no second attempt on the day — so prefer the wrappers,
+and reach for these only when something needs driving by hand.
+
+```bash
+# on the ROBOT, what robot_bringup.sh runs
+ros2 launch asr_summer_school bringup.launch.py
+
+# on the LAPTOP, what mission_run.sh runs
+ros2 launch asr_summer_school mission.launch.py \
+    mission_duration:=240.0 \
+    output_directory:=~/asr_mission_output/<run name>
+```
+
+`bringup.launch.py` checks `TURTLEBOT3_MODEL`, `LDS_MODEL` and `CAMERA_MODEL`
+before starting anything and stops with a message naming the missing one —
+`setup_env.sh onboard` sets all three. Without that check an unset `CAMERA_MODEL`
+surfaces as a `KeyError` from inside `turtlebot3_perception` several seconds in,
+with half the stack already up.
+
+`use_sim_time` is not passed: it defaults to false, which is what the robot
+needs. 240 is the announced window. Give the run its own subdirectory, or its
+files land loose in the parent alongside every other run's.
+
+**To stop early and still keep the deliverables**, Ctrl-C the mission terminal
+once. The export runs from a `finally` block, so the map and the semantic map
+are written even on an interrupt. Two Ctrl-Cs kill it before that.
+
+### 3.4 What a run leaves behind, and what to send for analysis
+
+`mission_run.sh` finishes by printing the path to a single tarball:
+
+```text
+one file to hand over: ~/asr_mission_output/myrun/myrun-20260910-1530.tar.gz
+```
+
+**That tarball is the thing to send.** It contains everything needed to work out
+what a run did without having been there:
+
+| File | Why it matters |
+|---|---|
+| `mission.log` | Every goal, every sweep, the frontier reasoning, the return budget at each decision, and the final `mission over` line |
+| `bringup.log` | Where the quiet failures surface — the LiDAR's real range, `scan_preprocess` warnings, which frames AprilTag parented to |
+| `diagnostics.txt` | The graph before and after: node and topic lists, publish rates, `/scan` vs `/scan_filtered` `range_max`, the TF chain, the pre-flight report, and the environment variables |
+| `mission_report.json` | Timings, goal and patrol counts, camera sweeps, map statistics, any detected SLAM jump, the final distance from home |
+| `map.pgm` / `map.yaml` | The occupancy grid deliverable, **+100** |
+| `semantic_map.yaml/json/csv` | The tag deliverable, **+100** |
+| `mission_overlay.png` | The grid with tags, start and finish drawn on — the fastest way to see what happened |
+
+If you ran `mission_run.sh` on your laptop, as [3.0](#30-which-machine-runs-what-and-why)
+recommends, that tarball is already on your laptop and there is nothing to copy.
+The only thing still on the robot is `bringup.log`:
+
+```bash
+scp students@192.168.10.111:~/asr_mission_output/myrun/bringup.log .
+```
+
+If instead you ran the mission over SSH on the robot, fetch the whole bundle:
+
+```bash
+scp students@192.168.10.111:~/asr_mission_output/myrun/myrun-*.tar.gz .
+```
+
+Two numbers in `diagnostics.txt` are worth reading yourself before sending it,
+because they answer questions this repo has been guessing at:
+
+- **`echo /scan range_max`** — the LiDAR's true horizon. `3.5` means an LDS-01
+  and the current `max_laser_range` is right; anything larger means an LDS-02
+  and there is coverage being left on the table ([section 5](#5-tuning-for-the-real-arena)).
+- **`echo /scan_filtered range_max`** — should be `25.0`. If it is not, the scan
+  preprocessing is not in the pipeline, and that is the difference between a
+  working system and one that maps a four-metre box.
+
+There is no `score_report.py` step on the robot. It scores against tag
+coordinates parsed out of the Gazebo world file, and no such file exists for a
+physical arena — running it would score the arena we are not in.
 
 ## 4. What comes out
 
@@ -592,14 +580,15 @@ time and cannot be caught out by a slow return. Two launch arguments, so nothing
 has to be edited on the day:
 
 ```bash
-stop_after_tags:=11    # leave the moment 11 tags are in hand
-scan_rotation:=0.0     # drop the camera sweep at each frontier, ~8 s per goal
+stop_after_tags:=0     # disable the early exit, if the count is ever withdrawn
+scan_rotation:=0.0     # drop the camera sweep at each goal, ~3 s per goal
 ```
 
-`stop_after_tags` works: 2 tags found at t+79 s, home by t+107 s of a 600 s
-window with 493 s unused. **Only set it if the organisers announce the count** —
-a tag is +50 and finishing early is +0, so leaving with tags unfound is a
-straight loss.
+`stop_after_tags` is already **12** in `param_mission.yaml`, because the
+organisers announced the count — that is the whole condition for it being safe.
+It works: in an early test 2 tags were found at t+79 s and the robot was home by
+t+107 s of a 600 s window. Set it to `0` only if the count is withdrawn; a tag is
++50 and finishing early is +0, so leaving with tags unfound is a straight loss.
 
 `scan_rotation:=0.0` is the tempting cut and the wrong one. Spinning measured
 48% of one 516 s run, but across four full runs removing or halving it left the
@@ -627,7 +616,7 @@ and `scan_rotation_min_slack` control the camera sweep at each frontier.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `ros2 topic list` empty | Middleware mismatch, or a stale daemon | Check `RMW_IMPLEMENTATION` on both ends; `pkill -9 -f ros && ros2 daemon stop` |
-| `Unable to connect to any of [tcp/192.168.10.111:7447]`, or an empty topic list from the laptop | No Zenoh router running **on the robot**. The laptop is a client aimed at the robot's `:7447`; a router started on the laptop listens in the wrong place | SSH to the robot and run `ros2 run rmw_zenoh_cpp rmw_zenohd`, leave it up, then retry. See [3.2](#32-on-the-robot-over-ssh) |
+| `Unable to connect to any of [tcp/192.168.10.111:7447]`, or an empty topic list from the laptop | No Zenoh router running **on the robot**. The laptop is a client aimed at the robot's `:7447`; a router started on the laptop listens in the wrong place | SSH to the robot and run `ros2 run rmw_zenoh_cpp rmw_zenohd`, leave it up, then retry. See [step 1 of 3.1](#31-the-run-step-by-step) |
 | Mission starts, timer never advances, robot never returns | `use_sim_time` true on the robot, so every node waits on a `/clock` nothing publishes | `mission.launch.py` now defaults it to false. If overridden, drop `use_sim_time:=true` |
 | Robot explores fine but finds few tags | Detector range shorter than `max_detection_range`, or the sweep is blurring | Walk a tag back from the camera and watch `/camera/detections` for the real range; if detections vanish only while sweeping, lower `max_rotational_vel` |
 | "exploration complete" in seconds | `/frontier_centroids` silent, or every centroid rejected | The mission logs the reason. Check `ros2 topic echo /frontier_centroids --once` |

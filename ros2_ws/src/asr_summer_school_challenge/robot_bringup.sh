@@ -1,9 +1,9 @@
 #!/bin/bash
 # Terminal 1 on the robot: the bringup, with everything it prints kept.
 #
-#   ./robot_bringup.sh                 # run tag defaults to "robot"
-#   ./robot_bringup.sh run3            # tag it
-#   ./robot_bringup.sh run3 teleop:=false
+#   robot_bringup.sh                 # run tag defaults to "robot"
+#   robot_bringup.sh run3            # tag it
+#   robot_bringup.sh run3 teleop:=false
 #
 # Same as `ros2 launch asr_summer_school bringup.launch.py`, except the output
 # goes to a file as well as the screen.  That matters because the bringup is
@@ -51,7 +51,7 @@ mkdir -p "$OUT"
 
 echo "== bringup, logging to $OUT/bringup.log"
 echo "   leave this running; start the mission with:"
-echo "     ./mission_run.sh $TAG 240      (on your LAPTOP)"
+echo "     mission_run.sh $TAG 240        (on your LAPTOP)"
 echo
 
 # stdbuf keeps the log in step with the screen; without it a crash can lose the

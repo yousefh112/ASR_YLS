@@ -23,9 +23,11 @@ def generate_launch_description():
         default_value=os.path.join(get_package_share_directory("asr_summer_school"),
                                    'config', 'param_slam_toolbox.yaml'),
         description='Full path to the ROS2 parameters file to use for the slam_toolbox node')
-    # The LDS-02 and its Gazebo model both stop at 3.5 m. Rastering rays out
-    # past anything actually measured is CLAUDE.md defect 5; exposed here so
-    # the physical arena can be matched without editing the config.
+    # 3.5 m is the GAZEBO model, which is an LDS-01; the real LDS-02 reaches
+    # 8 m and bringup.launch.py passes that from LDS_MODEL. This default only
+    # applies when neither bringup passes one. Rastering rays out past anything
+    # actually measured is CLAUDE.md defect 5, which is why this is a launch
+    # argument rather than a constant.
     declare_laser_max_range_cmd = DeclareLaunchArgument(
         'laser_max_range', default_value='3.5',
         description='Maximum usable laser range, metres')

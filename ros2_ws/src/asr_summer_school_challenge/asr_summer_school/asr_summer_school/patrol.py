@@ -10,9 +10,9 @@ occupancy grid is worth 100 points once, while every unique tag is worth 50.
 
 The gap between them is the camera.  The LiDAR is a 360 degree sensor, so a
 single stop maps every direction at once and the grid fills in fast.  The RGB
-camera sees about 55 degrees, so a tag is only detected if the robot happened to
-be pointing at it.  Driving past a wall maps that wall completely and may
-photograph none of it.  A run can therefore reach "exploration complete" with
+camera sees about 60 degrees in simulation and 69 on the robot, so a tag is only
+detected if the robot happened to be pointing at it.  Driving past a wall maps
+that wall completely and may photograph none of it.  A run can therefore reach "exploration complete" with
 the whole arena mapped and half the tags never once inside the frame.
 
 The reference 600 s run ended with the arena 68% known, five of eleven tags

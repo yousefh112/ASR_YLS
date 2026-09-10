@@ -208,7 +208,7 @@ class MissionSupport(Node):
         self.declare_parameter('expected_tags', 0)
         # Rotate on arrival at a frontier so the forward-facing camera sweeps
         # the whole area rather than only the direction of travel.  The camera
-        # sees about 60 degrees, so a tag on a wall the robot drove past
+        # sees 60-70 degrees, so a tag on a wall the robot drove past
         # without turning towards is simply never detected - and a tag is 50
         # points against the 30 the entire accuracy category is worth.
         self._declare('scan_rotation', 6.28, dynamic=True)
@@ -791,7 +791,7 @@ class MissionControl:
         # outcome patrolling exists to prevent.
         #
         # A closer look is worth less than a new one, but it is worth far more
-        # than parking at the start: the camera sees 55 degrees, so a second
+        # than parking at the start: the camera sees 60-70 degrees, so a second
         # visit from 1 m away still photographs a different set of walls.  Only
         # a spacing below the floor means the robot is effectively standing
         # everywhere it can already, and that is the one honest stop.
@@ -961,7 +961,7 @@ class MissionControl:
                     self.finish_goal(False, 'failed ({})'.format(result))
                     # Sweep here too.  The robot is somewhere it has not been
                     # even if it did not reach the frontier, the camera only
-                    # sees 60 degrees, and turning on the spot doubles as a
+                    # sees 60-70 degrees, and turning on the spot doubles as a
                     # recovery from whatever blocked the approach.
                     self.look_around()
             elif now - self.goal_started_at > self.goal_patience_s:

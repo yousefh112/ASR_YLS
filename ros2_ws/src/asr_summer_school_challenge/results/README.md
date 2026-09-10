@@ -1,11 +1,20 @@
 # Measured results
 
+> **These are all 600 s runs of the 400 m² practice maze, recorded before the
+> organisers announced the brief.** The real run is **240 s, 12 tags, ~40 m²**
+> — a tenth of the area in 40% of the window — so none of the scores below
+> predicts the day. What they are good for is the *relative* evidence: which
+> changes moved throughput, and how noisy a single run is.
+>
+> The simulation still runs this maze deliberately; it exercises the code, it
+> does not model the arena. See RUNBOOK section 0.
+
 Every run below is a full mission in the simulated 20 x 20 m maze
 (`worlds/hard_maze_apriltag.world`), scored by `score_report.py` against the tag
 coordinates parsed out of the world file itself. Reproduce any of them with:
 
 ```bash
-./sim_run.sh <tag> <seconds> [launch args...]
+sim_run.sh <tag> <seconds> [launch args...]
 ```
 
 ## Full-length runs (600 s window)
@@ -62,7 +71,8 @@ takes 3.0 s, measured from consecutive log timestamps rather than inferred.
 
 Throughput alone did not convert into tags — `faster600` and `faster600b` were
 faster than the baseline and found four. The limiter is not how fast the robot
-covers ground; it is that a 55° camera has to be *pointing* at a tag, and
+covers ground; it is that the camera — 59° in Gazebo, 69° on the robot — has to
+be *pointing* at a tag, and
 `final600` mapped less area than `faster600` while finding more tags.
 
 What converted it was patrol: spending the leftover clock looking from places
@@ -71,8 +81,8 @@ the extra throughput buys the slack, and patrol spends it on viewing angles
 instead of on parking at the start.
 
 Still unvalidated here: the `decimate` change, which **cannot** be measured in
-this simulation at all. Gazebo's camera is 1920×1080 with no motion blur; the
-robot's RealSense is 640×480 and blurs. `apriltag_sim.yaml` exists to keep the
+this simulation at all. Gazebo's camera is 1920×1080 with no motion blur and no
+rolling shutter; the robot's RealSense runs at 1280×720 and has both. `apriltag_sim.yaml` exists to keep the
 simulated detector's effective resolution comparable to the robot's, so these
 numbers are not flattered by a detector nobody will run. Detection range and
 sweep blur are hardware checks — see the pre-flight section of the runbook.
@@ -124,6 +134,7 @@ good output looks like, and the format to hand the organisers.
 | `semantic_map.csv` | One row per tag |
 | `mission_report.json` | Timings, goal counts, map statistics, any detected SLAM jumps |
 | `mission_overlay.png` | The grid with the tags, the start and the finish drawn on it |
+| `coverage_report.txt` | What the run looked at and what it did not. Newer runs only |
 
 Its five tags landed at a mean error of 7.6 cm, worst 10.7 cm — inside the 15 cm
 bracket that pays the full accuracy award — and the robot finished 4.6 cm from

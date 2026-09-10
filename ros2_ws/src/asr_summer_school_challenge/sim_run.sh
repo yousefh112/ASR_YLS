@@ -1,22 +1,30 @@
 #!/bin/bash
 # One-command simulation run: headless, logged, scored.
 #
-#   ./sim_run.sh                              600 s, default settings
-#   ./sim_run.sh quick 300                    a 300 s run tagged "quick"
-#   ./sim_run.sh nosweep 600 scan_rotation:=0.0
+# Sourcing setup_env.sh puts this on PATH, so it runs from any directory.
+#
+#   sim_run.sh                                240 s - the real window
+#   sim_run.sh long 600                       the maze at its own scale
+#   sim_run.sh nosweep 240 scan_rotation:=0.0
+#
+# 240 s is the announced competition window and the default here so the
+# simulation exercises the same timings as the real run.  Note the simulated
+# maze is 400 m2 against the real arena's 40, so a 240 s run of it maps about a
+# fifth and finds three or four tags - that is the maze being ten times too big,
+# not the stack failing.  Use `long 600` when you want the maze itself explored.
 #
 # Anything after the duration goes straight to mission.launch.py, which is how
 # A/B comparisons are run.  Logs and deliverables land in
 # ~/asr_mission_output/<tag>/ and the run is scored when it finishes.
 #
-# The three-terminal form in RUNBOOK.md is still the one for the robot, and for
-# any run you want to watch in RViz.  This is for iterating.
+# For the robot, see RUNBOOK section 3: the bringup runs there and
+# mission_run.sh runs on the laptop, so the deliverables need no copying.
 #
 # Deliberately no `set -u`: ROS 2's own setup.bash reads unbound variables
 # (AMENT_TRACE_SETUP_FILES among them) and aborts the script the moment it is
 # sourced under nounset.
 TAG=${1:-run}
-DURATION=${2:-600.0}
+DURATION=${2:-240.0}
 if [ $# -ge 2 ]; then shift 2; else shift $#; fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

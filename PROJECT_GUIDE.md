@@ -102,13 +102,19 @@ ros2 run asr_summer_school score_report.py --run ~/asr_mission_output
 For iterating in simulation, `sim_run.sh` starts Gazebo headless, brings the stack
 up, runs a mission and scores it:
 
+Sourcing `setup_env.sh` puts these on `PATH`, so they run from any directory —
+no `cd`, no `./`:
+
 ```bash
-cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge
-./sim_run.sh                          # 600 s, default settings
-./sim_run.sh quick 300                # a 300 s run tagged "quick"
-./sim_run.sh nosweep 600 scan_rotation:=0.0     # anything here goes to mission.launch.py
-./sim_stop.sh                         # kill a stack left running
+sim_run.sh                            # 240 s, the announced window
+sim_run.sh long 600                   # the maze at its own scale
+sim_run.sh nosweep 240 scan_rotation:=0.0     # anything here goes to mission.launch.py
+sim_stop.sh                           # kill a stack left running
 ```
+
+A 240 s run of this maze finds three or four tags. That is the maze being 400 m²
+against the real arena's 40 — ten times too big for the window — not the stack
+failing. Use `long 600` when you want the maze itself explored.
 
 Logs and deliverables land in `~/asr_mission_output/<tag>/`. Measured results and a
 complete reference set of deliverables are in
@@ -120,31 +126,44 @@ complete reference set of deliverables are in
 **On your laptop**, once per session:
 
 ```bash
-source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh <robot number>
-ros2 run rmw_zenoh_cpp rmw_zenohd            # leave this terminal running
+source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh 11
 ```
 
-**Over SSH to the robot** (`ssh students@192.168.10.1<NN>`, password `sesasr`), two
+**We are robot 11**: `ROS_DOMAIN_ID=11`, NUC at `192.168.10.111`.
+
+Only two things run on the robot, because only two things have to: the Zenoh
+router must sit at the endpoint the laptop points to, and the drivers open USB
+devices bolted to the robot. Everything else runs on the laptop — including the
+orchestrator, which is what writes the deliverables, so they land there and need
+no copying afterwards.
+
+**Over SSH to the robot** (`ssh students@192.168.10.111`, password `sesasr`), two
 terminals:
 
 ```bash
-source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard <robot number>
+source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard 11
+
+# ssh 1 — the Zenoh router.  Nothing discovers anything until this is up.
+ros2 run rmw_zenoh_cpp rmw_zenohd
+
+# ssh 2 — base, LiDAR, camera, AprilTag, SLAM, frontier detector.  No Nav2.
+robot_bringup.sh myrun
+#   no joypad plugged into the ROBOT?  add  teleop:=false
 ```
 
 `CAMERA_MODEL=realsense` is the default and is what our robot has. The launch
 still supports `oakd`, but nothing needs changing for us.
 
-```bash
-# terminal 1 — base, LiDAR, camera, AprilTag, SLAM, frontier detector.  No Nav2.
-ros2 launch asr_summer_school bringup.launch.py
-#   no joypad plugged in?  add  teleop:=false
+**Back on the laptop** — Nav2 and the mission, so the results are written here:
 
-# terminal 2 — Nav2 and the mission
-ros2 launch asr_summer_school mission.launch.py \
-    use_sim_time:=false \
-    mission_duration:=<seconds the organisers announce> \
-    output_directory:=~/asr_mission_output
+```bash
+mission_run.sh myrun 240
 ```
+
+AprilTag stays on the robot deliberately: raw 1280×720 at 15 fps is about
+330 Mbit/s, which no wifi here will carry. Only `/camera/detections` crosses the
+link. The trade is that `cmd_vel` now travels over wifi — see RUNBOOK section 3.0
+for the watchdog check to do before the scored run.
 
 `onboard` differs from the laptop form in one thing that matters: the robot hosts the
 Zenoh router, so it must not be configured as a client pointing at itself.
@@ -411,7 +430,8 @@ tags. It is worth more than everything else on this page combined. **If in doubt
 shorter than announced.**
 
 **2. `laser_max_range`** — the LiDAR horizon in metres. The default 3.5 is right for the
-LDS-01 and the simulator; the **LDS-02 fitted to these robots reaches further**. Check it:
+LDS-01 and the simulator; the **LDS-02 fitted to these robots reaches 8 m**, and
+`bringup.launch.py` now passes that automatically from `LDS_MODEL`. Verify it anyway:
 
 ```bash
 ros2 topic echo /scan --field range_max --once
@@ -434,7 +454,7 @@ The rubric pays nothing for a short run, but a short run wins a tie on time. Two
 arguments:
 
 ```bash
-stop_after_tags:=11    # leave the moment 11 tags are in hand (only if the count is known)
+stop_after_tags:=0     # disable the early exit (it is 12 by default: the count is known)
 scan_rotation:=0.0     # drop the camera sweep, ~8 s per goal
 ```
 

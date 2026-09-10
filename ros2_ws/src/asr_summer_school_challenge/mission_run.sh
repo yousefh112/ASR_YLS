@@ -9,7 +9,7 @@
 #
 # The robot must already be running, in its own SSH sessions:
 #     ros2 run rmw_zenoh_cpp rmw_zenohd        # the router. Robot only, always.
-#     ./robot_bringup.sh <tag>                 # drivers, SLAM, camera, apriltag
+#     robot_bringup.sh <tag>                 # drivers, SLAM, camera, apriltag
 #
 # Those cannot move to the laptop: they open USB devices that are plugged into
 # the robot, and apriltag has to sit next to the camera because raw 1280x720 at
@@ -17,9 +17,9 @@
 # crosses the network in this split is /scan_filtered, /map, /tf, /odom, the
 # detections and cmd_vel - well under 1 Mbit/s.
 #
-#   ./mission_run.sh                       # tag "robot", 240 s
-#   ./mission_run.sh run3 240              # tag "run3"
-#   ./mission_run.sh run3 240 scan_rotation:=0.0     # extra args go to the launch
+#   mission_run.sh                       # tag "robot", 240 s
+#   mission_run.sh run3 240              # tag "run3"
+#   mission_run.sh run3 240 scan_rotation:=0.0     # extra args go to the launch
 #
 # What this produces, in ~/asr_mission_output/<tag>/ ON THIS MACHINE:
 #
@@ -133,7 +133,7 @@ $(cd "$HERE" && git status --porcelain 2>/dev/null | wc -l) file(s) modified"
 # to find a TF tree ninety seconds in.
 if ! timeout 15 ros2 node list 2>/dev/null | grep -q .; then
   echo "!! No ROS nodes visible."
-  echo "   Is the bringup running ON THE ROBOT?   ./robot_bringup.sh $TAG"
+  echo "   Is the bringup running ON THE ROBOT?   robot_bringup.sh $TAG"
   echo "   Is the Zenoh router up ON THE ROBOT?    ros2 run rmw_zenoh_cpp rmw_zenohd"
   echo "   Do the two shells agree on RMW_IMPLEMENTATION and ROS_DOMAIN_ID?"
   exit 1

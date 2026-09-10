@@ -82,6 +82,9 @@ case "${1:-}" in
     echo "usage: source setup_env.sh sim"
     echo "       source setup_env.sh onboard <robot number>   (on the robot)"
     echo "       source setup_env.sh <robot number>           (on your laptop)"
+    echo
+    echo "  we are robot 11:  source setup_env.sh 11          (laptop)"
+    echo "                    source setup_env.sh onboard 11  (robot)"
     return 1 2>/dev/null || exit 1
     ;;
 esac

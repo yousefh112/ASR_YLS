@@ -173,7 +173,7 @@ mission_control:
     # has not swept from and sweeps there.  See patrol.py.
     #
     # A candidate closer than patrol_spacing to somewhere already swept is not
-    # worth the trip - at 2.0 m with a 55 degree camera the sweeps overlap
+    # worth the trip - at this spacing the sweeps overlap
     # comfortably without re-photographing the same corner.
     patrol_spacing: 1.4
     patrol_clearance: 0.25         # obstacle-free disc a patrol point needs
@@ -187,19 +187,24 @@ mission_control:
     # the spacing is halved and the question asked again, down to this floor,
     # instead of declaring the hunt over.  A closer look is worth less than a
     # new one and much more than parking at the start with time on the clock:
-    # a 55 degree camera still photographs different walls from 1 m away.
+    # a 60-70 degree camera still photographs different walls from 1 m away.
     # Below this the robot is effectively standing everywhere it can already.
     patrol_min_spacing: 0.35
 
     # Rotate on arrival at each frontier so the forward-facing camera sweeps
     # the area instead of only the direction of travel.  The camera sees about
-    # 60 degrees: without this, a tag on a wall the robot drove past is never
+    # 60-70 degrees: without this, a tag on a wall the robot drove past is never
     # detected.  A sweep costs roughly ten seconds and a tag is worth 50
     # points, so it pays - but only while there is slack, because being a
     # minute late costs 180.  Set to 0.0 to turn sweeping off entirely.
-    # 5.30, not 6.28.  The camera sees about 55 degrees, so the last 55 degrees
-    # of a full turn re-photographs what the first frame already covered: a
-    # rotation of 2*pi - FOV gives the camera a complete 360 degree sweep.
+    # 5.30, not 6.28.  The last FOV-worth of a full turn re-photographs what the
+    # first frame already covered, so 2*pi - FOV is a complete camera sweep.
+    #
+    # The two cameras differ: Gazebo's is 59 degrees (1.03 rad), giving 5.25,
+    # and the robot's RealSense at 1280x720 is 69 (1.20 rad), giving 5.08.
+    # 5.30 is a shade over the larger of the two, so it is a full sweep in both
+    # with a little overlap rather than a gap - erring the safe way, since a
+    # missed slice of arena costs a tag and the extra 0.05 rad costs 0.03 s.
     #
     # This is a camera number, not a SLAM one.  A stationary turn contributes
     # nothing whatsoever to the map - slam_toolbox's shouldProcessScan gates on
