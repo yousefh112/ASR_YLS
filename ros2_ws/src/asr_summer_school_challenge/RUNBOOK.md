@@ -148,12 +148,14 @@ ros2 run asr_summer_school score_report.py --run ~/asr_mission_output/manual
 
 For iterating, `sim_run.sh` does all of the above headless and scores the result:
 
+Sourcing `setup_env.sh` puts these on `PATH`, so they run from any directory —
+no `cd`, no `./`:
+
 ```bash
-cd ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge
-./sim_run.sh comp 240                            # the real window: 4 minutes
-./sim_run.sh long 600                            # the maze at its own scale
-./sim_run.sh nosweep 240 scan_rotation:=0.0      # extra args go to mission.launch.py
-./sim_stop.sh                                    # kill a stack left running
+sim_run.sh comp 240                             # the real window: 4 minutes
+sim_run.sh long 600                             # the maze at its own scale
+sim_run.sh nosweep 240 scan_rotation:=0.0       # extra args go to mission.launch.py
+sim_stop.sh                                     # kill a stack left running
 ```
 
 **A 240 s run of this maze finds three or four tags, and that is correct.** The
@@ -277,6 +279,10 @@ run and a single tarball at the end. A run whose only record was a terminal that
 has since been closed cannot be diagnosed afterwards, and there is no second
 attempt on the day.
 
+Sourcing `setup_env.sh` puts these scripts on `PATH`, so they run from any
+directory — there is no need to `cd` into the repo first, and no `./`. (It also
+exports `ASR_DIR` if you want the path itself.)
+
 Three terminals in total, two of them SSH sessions on the robot:
 
 ```bash
@@ -284,10 +290,10 @@ Three terminals in total, two of them SSH sessions on the robot:
 ros2 run rmw_zenoh_cpp rmw_zenohd
 
 # ROBOT, ssh session 2 - drivers, SLAM, camera, apriltag.  Leave it running.
-./robot_bringup.sh myrun
+robot_bringup.sh myrun
 
 # LAPTOP - Nav2 and the mission.  The results land HERE.
-./mission_run.sh myrun 240
+mission_run.sh myrun 240
 ```
 
 Use the same run tag on both. `robot_bringup.sh` writes `bringup.log` into

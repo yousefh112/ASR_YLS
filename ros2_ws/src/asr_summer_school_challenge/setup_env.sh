@@ -13,6 +13,19 @@
 # empty `ros2 topic list` rather than an error, which is worth one script.
 
 _asr_ws="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+_asr_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Put the run scripts on PATH, so `robot_bringup.sh` and `mission_run.sh` work
+# from whatever directory the shell happens to be in.  They used to be
+# documented as `./robot_bringup.sh`, which only works from inside the repo and
+# fails as "No such file or directory" from anywhere else - a confusing error,
+# because it names the script rather than the directory, and reads as though the
+# file were missing.  Exported so a fresh shell that sources this gets it too.
+export ASR_DIR="$_asr_dir"
+case ":$PATH:" in
+  *":$_asr_dir:"*) ;;
+  *) export PATH="$_asr_dir:$PATH" ;;
+esac
 
 source /opt/ros/humble/setup.bash
 [ -f /usr/share/gazebo/setup.bash ] && source /usr/share/gazebo/setup.bash
@@ -73,8 +86,9 @@ case "${1:-}" in
     ;;
 esac
 
+echo "  run scripts on PATH: robot_bringup.sh, mission_run.sh, sim_run.sh"
 for v in RMW_IMPLEMENTATION ROS_DOMAIN_ID TURTLEBOT3_MODEL LDS_MODEL \
          CAMERA_MODEL ZENOH_CONFIG_OVERRIDE; do
   printf '  %-22s %s\n' "$v" "${!v:-<unset>}"
 done
-unset _asr_ws
+unset _asr_ws _asr_dir
