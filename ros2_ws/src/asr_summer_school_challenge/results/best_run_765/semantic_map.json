@@ -1,0 +1,138 @@
+{
+  "frame_id": "map",
+  "family": "tag36h11",
+  "tag_count": 6,
+  "landmarks": [
+    {
+      "id": 4,
+      "frame_id": "map",
+      "x": 0.8179,
+      "y": 1.0278,
+      "z": 0.2728,
+      "observations": 113,
+      "rejected": 0,
+      "best_range": 1.202,
+      "max_deviation": 0.2069,
+      "first_seen": 0.0,
+      "last_seen": 559.4
+    },
+    {
+      "id": 5,
+      "frame_id": "map",
+      "x": 9.9986,
+      "y": -0.5958,
+      "z": 0.2814,
+      "observations": 84,
+      "rejected": 0,
+      "best_range": 2.25,
+      "max_deviation": 0.0517,
+      "first_seen": 77.8,
+      "last_seen": 135.8
+    },
+    {
+      "id": 6,
+      "frame_id": "map",
+      "x": -3.9995,
+      "y": -4.0674,
+      "z": 0.2552,
+      "observations": 40,
+      "rejected": 0,
+      "best_range": 1.394,
+      "max_deviation": 0.0796,
+      "first_seen": 465.4,
+      "last_seen": 516.8
+    },
+    {
+      "id": 7,
+      "frame_id": "map",
+      "x": 4.7104,
+      "y": -5.006,
+      "z": 0.2634,
+      "observations": 24,
+      "rejected": 0,
+      "best_range": 0.633,
+      "max_deviation": 0.0114,
+      "first_seen": 50.6,
+      "last_seen": 66.6
+    },
+    {
+      "id": 9,
+      "frame_id": "map",
+      "x": -0.4797,
+      "y": -9.8681,
+      "z": 0.2793,
+      "observations": 55,
+      "rejected": 0,
+      "best_range": 1.873,
+      "max_deviation": 0.0908,
+      "first_seen": 213.2,
+      "last_seen": 421.2
+    },
+    {
+      "id": 10,
+      "frame_id": "map",
+      "x": 9.4404,
+      "y": -10.3036,
+      "z": 0.2679,
+      "observations": 58,
+      "rejected": 0,
+      "best_range": 1.775,
+      "max_deviation": 0.052,
+      "first_seen": 311.6,
+      "last_seen": 377.0
+    }
+  ],
+  "mission": {
+    "mission_duration_s": 600.0,
+    "elapsed_s": 560.0,
+    "finished_within_deadline": true,
+    "seconds_late": 0.0,
+    "stop_reason": "return budget spent",
+    "returned_home": true,
+    "home_pose": {
+      "x": 0.0,
+      "y": -0.0,
+      "yaw": 0.0
+    },
+    "final_distance_from_home_m": 0.045,
+    "return_rule_radius_m": 0.5,
+    "inside_return_rule": true,
+    "unique_tags": 6,
+    "tag_ids": [
+      4,
+      5,
+      6,
+      7,
+      9,
+      10
+    ],
+    "goals_sent": 24,
+    "goals_reached": 24,
+    "goals_failed": 0,
+    "patrol_goals": 2,
+    "patrol_failures": 0,
+    "camera_sweeps": 24,
+    "map_jumps": [],
+    "return_anchored_on": "map",
+    "home_goal_used": {
+      "x": 0.0,
+      "y": -0.0
+    },
+    "blacklisted_frontiers": 0,
+    "final_pose": {
+      "x": -0.034,
+      "y": -0.029,
+      "yaw": 0.434
+    },
+    "map": {
+      "width": 402,
+      "height": 259,
+      "resolution": 0.05000000074505806,
+      "free_cells": 59489,
+      "occupied_cells": 3699,
+      "unknown_cells": 40930,
+      "explored_area_m2": 157.97,
+      "known_fraction": 0.6069
+    }
+  }
+}
