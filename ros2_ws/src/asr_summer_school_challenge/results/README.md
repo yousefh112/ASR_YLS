@@ -60,14 +60,22 @@ Goal throughput is up about 40% per goal, and that is a real, repeatable
 change: a 2π sweep at 1.0 rad/s took 7.4 s and a 5.30 rad sweep at 1.9 rad/s
 takes 3.0 s, measured from consecutive log timestamps rather than inferred.
 
-**It has not yet converted into tags**, and that is the honest headline. The
-limiter is not how fast the robot covers ground — it is that a 55° camera has
-to be pointing at a tag. `final600` mapped *less* area than `faster600` and
-found *more* tags. That is what patrol and the `decimate` change are aimed at,
-and neither is validated yet: patrol did not trigger in any of these runs until
-the relaxation fix, and `decimate` cannot be measured in simulation at all
-because Gazebo's camera is 1920×1080 with no motion blur while the robot's is
-640×480.
+Throughput alone did not convert into tags — `faster600` and `faster600b` were
+faster than the baseline and found four. The limiter is not how fast the robot
+covers ground; it is that a 55° camera has to be *pointing* at a tag, and
+`final600` mapped less area than `faster600` while finding more tags.
+
+What converted it was patrol: spending the leftover clock looking from places
+the camera had not looked. `final2` is the run where speed and patrol compound —
+the extra throughput buys the slack, and patrol spends it on viewing angles
+instead of on parking at the start.
+
+Still unvalidated here: the `decimate` change, which **cannot** be measured in
+this simulation at all. Gazebo's camera is 1920×1080 with no motion blur; the
+robot's RealSense is 640×480 and blurs. `apriltag_sim.yaml` exists to keep the
+simulated detector's effective resolution comparable to the robot's, so these
+numbers are not flattered by a detector nobody will run. Detection range and
+sweep blur are hardware checks — see the pre-flight section of the runbook.
 
 **Read that table as a distribution, not as four measurements of four things.**
 It was originally presented as an A/B showing the camera sweep buys localisation.
