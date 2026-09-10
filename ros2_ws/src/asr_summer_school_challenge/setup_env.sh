@@ -54,6 +54,21 @@ case "${1:-}" in
       echo "usage: source setup_env.sh onboard <robot number>"
       return 1 2>/dev/null || exit 1
     fi
+    # `onboard` is the ROBOT's form.  Sourced on the laptop it looks like it
+    # worked - it prints "ON ROBOT 11" - while leaving ZENOH_CONFIG_OVERRIDE
+    # unset, so the laptop never points at the robot's router and every ros2
+    # command returns an empty topic list with no error.  Cheap to catch here.
+    _asr_target="192.168.10.1$(printf '%02d' "$2" 2>/dev/null)"
+    if ! hostname -I 2>/dev/null | tr ' ' '\n' | grep -qx "$_asr_target" \
+       && [ "$(hostname)" != "nuc$2" ]; then
+      echo "!! 'onboard' is the ROBOT's form, and this is $(hostname)."
+      echo "   On your laptop use:   source setup_env.sh $2"
+      echo "   The laptop needs the zenoh CLIENT config that form sets;"
+      echo "   'onboard' leaves it unset and nothing will connect."
+      unset _asr_target
+      return 1 2>/dev/null || exit 1
+    fi
+    unset _asr_target
     export RMW_IMPLEMENTATION=rmw_zenoh_cpp
     export ROS_DOMAIN_ID="$2"
     # No client override: this machine hosts the router.
@@ -89,7 +104,7 @@ case "${1:-}" in
     ;;
 esac
 
-echo "  run scripts on PATH: robot_bringup.sh, mission_run.sh, sim_run.sh"
+echo "  run scripts on PATH: deploy_to_robot.sh, robot_bringup.sh, mission_run.sh, sim_run.sh"
 for v in RMW_IMPLEMENTATION ROS_DOMAIN_ID TURTLEBOT3_MODEL LDS_MODEL \
          CAMERA_MODEL ZENOH_CONFIG_OVERRIDE; do
   printf '  %-22s %s\n' "$v" "${!v:-<unset>}"
