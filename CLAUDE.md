@@ -82,8 +82,10 @@ budget — not the frontier list — sends it home (`patrol.py`). The only hones
 early is that every reachable place has been looked at from, and that is now what "exploration
 complete" means.
 
-`stop_after_tags` remains the one deliberate early exit, and it stays at `0` (disabled) unless
-the organisers announce the tag count. Leaving with tags unfound costs 50 each.
+`stop_after_tags` is the one deliberate early exit, and it is now **12**, because the organisers
+have announced the count. That is the whole condition for it being safe: ending early is only ever
+right when there is provably nothing left to find, and until the number was published, leaving with
+tags unfound cost 50 each. Set it back to `0` if the count is ever withdrawn.
 
 **The deadline still dominates the downside.** On-time (+150) versus one minute late (-30) is
 a 180-point swing, worth 3.6 tags. The mission timer and the go-home behaviour were built
@@ -125,8 +127,10 @@ wrong — the recovery spin does not "refresh the map", and `initial_spin` does 
 (the startup speckle it was blamed on is a `min_pass_through` effect that only *translation*
 clears).
 
-What the sweep **does** do is point a 55° camera at tags, which is worth +50 each and is why it
-stays. But that makes it a camera action, so its speed is bounded by **motion blur, not SLAM** —
+What the sweep **does** do is point the camera at tags — 59° in Gazebo, **69° on the robot** at the
+1280×720 profile — which is worth +50 each and is why it stays. `scan_rotation` is 5.30 rad rather
+than 2π because a full circle re-photographs the first frame; 5.30 leaves a little overlap at both
+fields of view. But that makes it a camera action, so its speed is bounded by **motion blur, not SLAM** —
 and it was running at 1.0 rad/s against the burger's 2.84 ceiling. Now 1.9 rad/s over 5.30 rad
 (2π minus one camera FOV re-photographs nothing), which halves every turn in the run.
 
