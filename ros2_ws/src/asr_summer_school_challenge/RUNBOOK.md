@@ -201,6 +201,19 @@ to copy off the robot after the run.
 | ↳ apriltag, inside it | **robot** | it has to sit next to the camera — see the bandwidth note below |
 | `mission_run.sh` | **laptop** | Nav2 and the orchestrator. **This is what writes the results**, so run it where you want them |
 
+**"Why can't I just run everything from the laptop and only set up the
+connection?"** Because ROS 2 distributes *messages*, not *device access*. The
+LiDAR is on a serial port, the OpenCR on `/dev/ttyACM0` and the RealSense on a
+USB bus — all physically attached to the robot. No amount of Zenoh configuration
+lets a process on the laptop `open()` a device that is plugged into another
+computer. Something has to run on the robot to read those devices and publish
+what they say; that is what the bringup is.
+
+What you *can* do, and what this split does, is keep that to the minimum and put
+everything else on the laptop — including the orchestrator, so the results are
+written there. The practical cost is one command,
+[step 0](#31-the-run-step-by-step), run once per robot rather than once per run.
+
 **Why apriltag cannot move.** Raw 1280×720 RGB at 15 fps is
 `1280 × 720 × 3 × 15` ≈ **330 Mbit/s**. No wifi in the building carries that, and
 compressing it would cost the sharpness the decoder needs. Detection stays next
@@ -244,9 +257,15 @@ package.
 From the **laptop**:
 
 ```bash
+deploy_to_robot.sh 11 --setup-key     # first time in a session: install your ssh key too
 deploy_to_robot.sh                    # rsync + build.  A few minutes the first time.
 deploy_to_robot.sh 11 --no-build      # after a Python-only change
 ```
+
+**Do the `--setup-key` form once at the start of a session.** Without an SSH key
+every `ssh`, `scp` and deploy asks for `sesasr`, and a password prompt is one
+more thing that can go wrong while a slot clock runs. It installs the public key
+you already have and nothing asks again.
 
 It sends the source only — about 9 MB — and builds it over SSH. Cloning on the
 robot instead works too, but only if the robot has internet, and on the day it
