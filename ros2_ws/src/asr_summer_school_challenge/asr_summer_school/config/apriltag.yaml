@@ -45,6 +45,13 @@ camera:
   apriltag:
     ros__parameters:
       image_transport: raw
+      # MUST be sensor_data.  apriltag_ros defaults this to "default", which is
+      # RELIABLE, while the RealSense publishes its images BEST_EFFORT - and a
+      # reliable subscriber never receives from a best-effort publisher.  The
+      # node starts, subscribes, reports no error, and is handed nothing; the
+      # only symptom is that /camera/detections stays silent and no tag is ever
+      # found.  Cost: every tag, 50 points each.
+      qos_profile: sensor_data
       family: 36h11
       # Physical edge length of the printed tag, in metres.  If the arena's
       # tags are not 16 cm this is wrong and every tag position is wrong with
