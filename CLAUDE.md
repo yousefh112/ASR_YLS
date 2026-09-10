@@ -265,6 +265,8 @@ ros2_ws/src/
     turtlebot3_simulations/   vendored, do not edit
     RUNBOOK.md                how to run it
     sim_run.sh, sim_stop.sh   one-command simulated run, headless and scored
+    deploy_to_robot.sh        rsync the workspace to the robot and build it
+                              there.  The robot needs it: the bringup is ours
     robot_bringup.sh          runs ON THE ROBOT: drivers, SLAM, camera, apriltag
     mission_run.sh            runs ON THE LAPTOP: Nav2 and the orchestrator, so
                               the deliverables land there and need no copying.

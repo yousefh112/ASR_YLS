@@ -231,9 +231,33 @@ instead — everything still works, the files simply land there and need one `sc
 
 ### 3.1 The run, step by step
 
-Four steps, in this order. Three terminals: two SSH sessions on the robot, one on
+Five steps, in this order. Three terminals: two SSH sessions on the robot, one on
 your laptop. Sourcing `setup_env.sh` puts the run scripts on `PATH`, so none of
 these needs a `cd` or a `./`.
+
+**Step 0 — put the workspace on the robot.** Once per robot, and again after any
+code change. The robot needs it because the bringup is *ours*: our
+`slam_toolbox.launch.py`, our `camera.launch.py` at 1280×720, our AprilTag
+config and the C++ frontier detector. Only `turtlebot3_bringup` is a system
+package.
+
+From the **laptop**:
+
+```bash
+deploy_to_robot.sh                    # rsync + build.  A few minutes the first time.
+deploy_to_robot.sh 11 --no-build      # after a Python-only change
+```
+
+It sends the source only — about 9 MB — and builds it over SSH. Cloning on the
+robot instead works too, but only if the robot has internet, and on the day it
+may not; the robot's own wifi always reaches it.
+
+`--no-build` is safe for a Python-only change because the workspace is built
+with `--symlink-install`, so the installed files point at the sources the rsync
+overwrote. C++, launch files and `package.xml` still need a build.
+
+If `setup_env.sh` on the robot reports `No such file or directory`, this step has
+not been done.
 
 **Step 1 — the robot's Zenoh router.** Nothing on either machine discovers
 anything until this is up, and it is the single most likely reason for "nothing
@@ -616,6 +640,8 @@ and `scan_rotation_min_slack` control the camera sweep at each frontier.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `ros2 topic list` empty | Middleware mismatch, or a stale daemon | Check `RMW_IMPLEMENTATION` on both ends; `pkill -9 -f ros && ros2 daemon stop` |
+| `setup_env.sh: No such file or directory` over SSH on the robot | The workspace has never been copied there — it only exists on the laptop | `deploy_to_robot.sh` from the laptop; see step 0 of [3.1](#31-the-run-step-by-step) |
+| `Package 'asr_summer_school' not found` on the robot | The workspace is there but not built | `deploy_to_robot.sh` without `--no-build`, or `colcon build --symlink-install` on the robot |
 | `Unable to connect to any of [tcp/192.168.10.111:7447]`, or an empty topic list from the laptop | No Zenoh router running **on the robot**. The laptop is a client aimed at the robot's `:7447`; a router started on the laptop listens in the wrong place | SSH to the robot and run `ros2 run rmw_zenoh_cpp rmw_zenohd`, leave it up, then retry. See [step 1 of 3.1](#31-the-run-step-by-step) |
 | Mission starts, timer never advances, robot never returns | `use_sim_time` true on the robot, so every node waits on a `/clock` nothing publishes | `mission.launch.py` now defaults it to false. If overridden, drop `use_sim_time:=true` |
 | Robot explores fine but finds few tags | Detector range shorter than `max_detection_range`, or the sweep is blurring | Walk a tag back from the camera and watch `/camera/detections` for the real range; if detections vanish only while sweeping, lower `max_rotational_vel` |
