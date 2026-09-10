@@ -26,6 +26,7 @@ from collections import defaultdict
 
 import rclpy
 import tf2_ros
+from apriltag_msgs.msg import AprilTagDetectionArray
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.duration import Duration
@@ -39,6 +40,11 @@ from visualization_msgs.msg import Marker
 
 PASS, WARN, FAIL = 'PASS', 'WARN', 'FAIL'
 _MARK = {PASS: 'ok  ', WARN: 'warn', FAIL: 'FAIL'}
+
+# apriltag_ros publishes one of these per frame, empty or not, so its rate is
+# proof the camera path is alive - and it is small enough to cross the wifi,
+# which the images deliberately are not.
+DETECTIONS_TOPIC = '/camera/detections'
 
 SENSOR_QOS = QoSProfile(depth=5, reliability=QoSReliabilityPolicy.BEST_EFFORT,
                         history=QoSHistoryPolicy.KEEP_LAST)
@@ -86,6 +92,7 @@ class Preflight(Node):
         self._watch('/frontier_centroids', Marker, LATCHED_QOS)
         for topic in self._camera_topics():
             self._watch(topic, Image, SENSOR_QOS)
+        self._watch(DETECTIONS_TOPIC, AprilTagDetectionArray, RELIABLE_QOS)
 
     # ------------------------------------------------------------------ #
 
@@ -179,8 +186,13 @@ class Preflight(Node):
             out.append(Result(
                 'LiDAR horizon', PASS,
                 'driver reports {:.2f} m'.format(raw_scan.range_max),
-                'Confirm max_laser_range in param_slam_toolbox.yaml sits just '
-                'below this. The LDS-02 reaches further than the LDS-01.'))
+                'This is the driver NOMINAL maximum, not a usable horizon - '
+                'the LDS-02 reports 100 m and cannot see anything like that. '
+                'Do NOT set max_laser_range just below it: rays are rastered '
+                'out to that range and the scan matcher acquires a ring of '
+                'phantom obstacles, which is CLAUDE.md defect 2 and cost 6 m '
+                'of drift in three minutes. laser_max_range is set from '
+                'LDS_MODEL instead (LDS-01 3.5, LDS-02 8.0, LDS-03 12.0).'))
         return out
 
     def check_odometry(self):
@@ -198,13 +210,38 @@ class Preflight(Node):
     def check_camera(self):
         live = [(t, self.rate(t)) for t in self._camera_topics()
                 if self.rate(t) > 0.0]
-        if not live:
+        if live:
+            topic, rate = live[0]
+            return [Result('camera', PASS,
+                           '{} at {:.1f} Hz'.format(topic, rate))]
+
+        # No images - but that is EXPECTED when preflight runs on the laptop.
+        # 1280x720 at 15 fps is about 330 Mbit/s, so the images deliberately
+        # never leave the robot; only the detections do (RUNBOOK section 3.0).
+        # Failing here would condemn a perfectly healthy camera for behaving
+        # exactly as the architecture intends.
+        #
+        # /camera/detections is the honest remote check: apriltag_ros publishes
+        # an array on every frame, empty or not, so a live rate proves the whole
+        # path - driver, image, detector - without pulling a single image across
+        # the wifi.
+        detections = self.rate(DETECTIONS_TOPIC)
+        if detections > 0.0:
             return [Result(
-                'camera', FAIL, 'no image topic publishing',
-                'CAMERA_MODEL wrong, or the camera did not enumerate on USB. '
-                'Tags are 50 points each; do not start a run without this.')]
-        topic, rate = live[0]
-        return [Result('camera', PASS, '{} at {:.1f} Hz'.format(topic, rate))]
+                'camera', PASS,
+                'no images here, but {} at {:.1f} Hz'.format(
+                    DETECTIONS_TOPIC, detections),
+                'Normal when this runs on the laptop: the images stay on the '
+                'robot by design and only the detections cross. The detector '
+                'is running on live frames, which is what matters.')]
+
+        return [Result(
+            'camera', FAIL, 'no image topic and no detections',
+            'On the ROBOT: CAMERA_MODEL wrong, or the camera did not enumerate '
+            'on USB - check the bringup log for "RealSense Node Is Up!". '
+            'On the LAPTOP: this means apriltag is not running on the robot, '
+            'since its detections would have crossed even though images do '
+            'not. Tags are 50 points each; do not start a run without this.')]
 
     def check_transforms(self):
         """Each link has a different owner, so each gets its own remedy.
