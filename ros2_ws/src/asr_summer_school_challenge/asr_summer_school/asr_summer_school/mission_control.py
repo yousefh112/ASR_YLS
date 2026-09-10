@@ -45,6 +45,7 @@ from asr_summer_school.map_export import (grid_statistics, save_occupancy_grid,
                                           save_overlay, save_report,
                                           save_semantic_map)
 from asr_summer_school.map_recorder import MapRecorder
+from asr_summer_school.patrol import candidate_points, choose_patrol_target
 from asr_summer_school.mission_clock import MissionClock, path_length
 from asr_summer_school.tag_manager import TagManager
 
@@ -119,6 +120,12 @@ class MissionSupport(Node):
         # generous for a 2 m hop and mean for a 7 m one across the arena, and
         # both cases occur in the same run.  The estimate uses the same
         # effective speed as the return budget.
+        # Deliberately NOT return_speed, which goal_patience used to borrow.
+        # That coupled two unrelated things: how fast the robot gets home, and
+        # how long a frontier goal is allowed to run.  Tuning the return budget
+        # then silently shortened every goal timeout, and a goal that times out
+        # is not free - it blacklists the frontier for frontier_failure_ttl.
+        self.declare_parameter('goal_speed', 0.15)
         self.declare_parameter('goal_timeout_min', 30.0)
         self.declare_parameter('goal_timeout_max', 90.0)
         self.declare_parameter('goal_timeout_factor', 2.0)
@@ -183,6 +190,14 @@ class MissionSupport(Node):
         # Below this much slack, stop starting long trips across the arena.
         self.declare_parameter('horizon_slack_threshold', 150.0)
         self.declare_parameter('min_horizon', 1.5)
+
+        # Patrol: what the robot does when the map is finished but the clock is
+        # not.  See patrol.py for why mapping the arena does not mean the tags
+        # have been found.
+        self.declare_parameter('patrol_spacing', 2.0)
+        self.declare_parameter('patrol_clearance', 0.25)
+        self.declare_parameter('patrol_travel_weight', 0.35)
+        self.declare_parameter('patrol_max_failures', 4)
         # Rotate on arrival at a frontier so the forward-facing camera sweeps
         # the whole area rather than only the direction of travel.  The camera
         # sees about 60 degrees, so a tag on a wall the robot drove past
@@ -308,6 +323,7 @@ class MissionControl:
         self.map_jumps = []
 
         self.target = None
+        self.target_kind = 'frontier'
         self.goal_started_at = None
         self.goal_patience_s = 60.0
         self.consumed_ticks = 0
@@ -315,6 +331,15 @@ class MissionControl:
         self.recoveries_used = 0
         self.blacklist_clears_used = 0
         self.last_budget_update = 0.0
+
+        # Every position the camera has swept from.  Frontier exploration
+        # finishes when the map is complete, which is not the same as the tags
+        # being found: a 360 degree LiDAR maps a wall from any heading, a 55
+        # degree camera only photographs it from one.  These are the places
+        # already looked around from, so the patrol can go somewhere else.
+        self.swept = []
+        self.patrol_goals = 0
+        self.patrol_failures = 0
 
         self.goals_sent = 0
         self.goals_reached = 0
@@ -585,6 +610,12 @@ class MissionControl:
         """
         if self.target is None:
             return False
+        # A patrol point is not a frontier, so there is no frontier there to be
+        # consumed.  Without this the very first tick of every patrol goal sees
+        # "no centroid within blacklist_radius", counts towards consumed_checks
+        # and cancels the goal before the robot has gone anywhere.
+        if self.target_kind != 'frontier':
+            return False
         radius = self.support.param('blacklist_radius')
         live = any(math.hypot(c[0] - self.target[0], c[1] - self.target[1]) <= radius
                    for c in self.frontiers.centroids)
@@ -593,16 +624,35 @@ class MissionControl:
 
     def goal_patience(self, distance):
         """How long to let one frontier goal run, given how far away it is."""
-        speed = max(0.05, self.support.param('return_speed'))
+        speed = max(0.05, self.support.param('goal_speed'))
         estimate = (distance / speed) * self.support.param('goal_timeout_factor')
         return min(max(estimate, self.support.param('goal_timeout_min')),
                    self.support.param('goal_timeout_max'))
 
-    def dispatch(self, target, current):
-        """Send the robot to a frontier, facing the way it travelled."""
+    def dispatch(self, target, current, kind='frontier'):
+        """Send the robot to a frontier, facing the way it travelled.
+
+        `kind` separates a frontier goal from a patrol goal.  They are driven
+        identically but judged differently: a patrol point is a place to stand
+        and look, so it has no frontier to be consumed and it must never reach
+        the frontier selector's blacklist, which reasons about unexplored space.
+        """
         heading = math.atan2(target[1] - current[1], target[0] - current[0])
         goal = self.pose_stamped(target[0], target[1], heading)
-        self.navigator.goToPose(goal)
+        if not self.navigator.goToPose(goal):
+            # goToPose returns False when the action server REJECTS the goal.
+            # Discarding it used to leave self.target set while nothing was
+            # driving, and BasicNavigator keeps the *previous* task's
+            # result_future, so the next isTaskComplete()/getResult() pair
+            # reported that stale result - a rejected goal counted as reached.
+            self.log.warn('Nav2 rejected the {} goal at ({:.2f}, {:.2f})'
+                          .format(kind, target[0], target[1]))
+            if kind == 'frontier':
+                self.selector.note_unreachable(target, now=self.clock.elapsed())
+            return False
+        self.target_kind = kind
+        if kind == 'patrol':
+            self.patrol_goals += 1
         self.target = target
         self.goal_started_at = self.clock.elapsed()
         self.consumed_ticks = 0
@@ -610,21 +660,31 @@ class MissionControl:
         self.goal_patience_s = self.goal_patience(distance)
         self.goals_sent += 1
         self.log.info(
-            'goal {}: ({:.2f}, {:.2f})  {:.1f} m away, {:.0f} s allowed  |  {}'
-            .format(self.goals_sent, target[0], target[1], distance,
+            '{} goal {}: ({:.2f}, {:.2f})  {:.1f} m away, {:.0f} s allowed  |  {}'
+            .format(kind, self.goals_sent, target[0], target[1], distance,
                     self.goal_patience_s, self.clock.summary()))
+        return True
 
     def finish_goal(self, reached, note):
         if self.target is not None:
             if reached:
-                self.selector.note_success(self.target)
                 self.goals_reached += 1
+                if self.target_kind == 'frontier':
+                    self.selector.note_success(self.target)
             else:
-                # Two failures blacklist the frontier; one may just have been a
-                # transient costmap obstruction.
-                if self.selector.note_failure(self.target, now=self.clock.elapsed()):
-                    note += ', blacklisted'
                 self.goals_failed += 1
+                # Only frontiers go on the frontier blacklist.  A patrol point
+                # the planner could not reach says nothing about unexplored
+                # space, and banning it there would distort the selector that
+                # the next round of exploring depends on.
+                if self.target_kind == 'frontier':
+                    # Two failures blacklist the frontier; one may just have
+                    # been a transient costmap obstruction.
+                    if self.selector.note_failure(self.target,
+                                                  now=self.clock.elapsed()):
+                        note += ', blacklisted'
+                else:
+                    self.patrol_failures += 1
             self.log.info('goal {} {} ({} tags so far)'.format(
                 self.goals_sent, note, self.tags.count))
         self.target = None
@@ -670,7 +730,48 @@ class MissionControl:
             self.log.info('skipping the camera sweep, only {:.0f} s of slack'
                           .format(slack))
             return
+        # Recorded before the spin, not after: the point of the list is "the
+        # camera has covered this spot", and it has by the time the turn ends
+        # whether or not Nav2 reports the Spin as SUCCEEDED.  A cancelled sweep
+        # still photographed most of the circle.
+        here = self.pose()
+        if here is not None:
+            self.swept.append((here[0], here[1]))
         self.spin_in_place(angle, reason='sweeping for tags')
+
+    def patrol_target(self, current):
+        """Somewhere in known free space the camera has not looked from yet.
+
+        Only consulted once the frontier search is exhausted.  Returns None when
+        the whole known map has been swept, which is the one honest reason to
+        stop exploring early.
+        """
+        grid = self.maps.grid
+        if grid is None:
+            return None
+        if self.patrol_failures >= int(self.support.param('patrol_max_failures')):
+            return None
+
+        spacing = self.support.param('patrol_spacing')
+        try:
+            points = candidate_points(
+                grid.data, grid.info.width, grid.info.height,
+                grid.info.resolution,
+                grid.info.origin.position.x, grid.info.origin.position.y,
+                stride_m=max(0.5, spacing / 2.0),
+                clearance_m=self.support.param('patrol_clearance'))
+        except (IndexError, ValueError, ZeroDivisionError) as error:
+            self.log.warn('patrol scan of the grid failed: {}'.format(error))
+            return None
+
+        # The same horizon the frontier search obeys: late in the run a patrol
+        # point across the arena is a trip the return budget cannot afford.
+        horizon = self.frontier_horizon()
+        return choose_patrol_target(
+            points, self.swept, (current[0], current[1]),
+            min_spacing=spacing,
+            travel_weight=self.support.param('patrol_travel_weight'),
+            max_range=horizon)
 
     def nothing_to_explore(self, now):
         """Handle a selection that came back empty.
@@ -729,8 +830,28 @@ class MissionControl:
             self.empty_since = self.clock.elapsed()
             return
 
-        self.stop_reason = 'exploration complete, no frontiers left ({})'.format(
-            self.selector.last_rejection)
+        # The map is finished.  The tag hunt is not, and the two are not the
+        # same job: the LiDAR sees 360 degrees so the grid fills in from any
+        # heading, while the camera sees 55, so a wall can be perfectly mapped
+        # and never once photographed.  Going home now would hand back the rest
+        # of the window with tags still in the arena - which is exactly what the
+        # reference run did, standing at the start for 84 s with six of eleven
+        # tags unfound.  Keep looking until the return budget says otherwise.
+        current = self.pose()
+        if current is not None:
+            patrol = self.patrol_target(current)
+            if patrol is not None:
+                self.log.info(
+                    'no frontiers left, but {:.0f} s of slack: sweeping for '
+                    'tags from somewhere the camera has not looked'
+                    .format(self.clock.slack()))
+                self.dispatch(patrol, current, kind='patrol')
+                self.empty_since = None
+                return
+
+        self.stop_reason = (
+            'exploration complete, no frontiers left and nowhere unswept '
+            'to look from ({})'.format(self.selector.last_rejection))
         self.log.info(self.stop_reason)
         self.state = State.RETURN
 
@@ -758,13 +879,19 @@ class MissionControl:
             return
 
         if self.target is not None:
-            if not self.navigator.isTaskComplete() and self.target_is_consumed():
+            # Once per tick, not twice.  isTaskComplete() spins the executor for
+            # up to 0.10 s, so asking it twice made the 0.4 s loop_period a 0.6 s
+            # one - and every tick-counted constant in this file, consumed_checks
+            # among them, is written against the configured period.
+            task_complete = self.navigator.isTaskComplete()
+
+            if not task_complete and self.target_is_consumed():
                 self.navigator.cancelTask()
                 self.finish_goal(True, 'frontier already explored')
                 self.look_around()
                 return
 
-            if self.navigator.isTaskComplete():
+            if task_complete:
                 result = self.navigator.getResult()
                 if result == TaskResult.SUCCEEDED:
                     self.finish_goal(True, 'reached')
@@ -799,7 +926,13 @@ class MissionControl:
             self.nothing_to_explore(now)
             return
 
+        # A frontier was found, so whatever made the list go empty earlier is
+        # over.  The recovery budget is per drought, not per run: it used to be
+        # spent by the first transient - a costmap wipe, a gap between map
+        # publications - and then never refunded, so the genuine drought later
+        # in the run got no recovery at all and the mission ended early.
         self.empty_since = None
+        self.recoveries_used = 0
         self.dispatch(target, current)
 
     # ------------------------------------------------------------------ #
@@ -813,20 +946,66 @@ class MissionControl:
 
         self.log.info('heading home: {}'.format(self.clock.summary()))
 
-        for attempt in range(1, retries + 1):
+        attempts_used = 0
+        dispatches = 0
+        # A re-aim after a mid-drive map jump is not a failed attempt, but the
+        # total is still bounded so a burst of loop closures cannot loop here
+        # until the deadline.
+        max_dispatches = retries + 2
+
+        while attempts_used < retries and dispatches < max_dispatches:
+            dispatches += 1
+            # The watchdog has to run here too.  check_for_map_jump used to be
+            # reachable only through update_budget, which only explore_step
+            # calls, so it was switched off for the whole return - and the
+            # return leg is precisely when a false loop closure is most likely,
+            # because the robot is re-observing corridors it has already seen.
+            # A jump then moved the recorded start pose, the robot drove to
+            # where the start used to be, and distance_home() measured against
+            # that same moved coordinate and reported a perfect return.
+            self.check_for_map_jump()
+            jumps_at_dispatch = len(self.map_jumps)
+
             # Re-read each attempt: a jump between attempts moves the target.
             home = self.home_goal()
             goal = self.pose_stamped(home[0], home[1], home[2])
-            self.navigator.goToPose(goal)
+            if not self.navigator.goToPose(goal):
+                self.log.warn('Nav2 rejected the home goal; retrying')
+                attempts_used += 1
+                time.sleep(1.0)
+                continue
 
+            jumped = False
+            last_watch = self.clock.elapsed()
             while not self.navigator.isTaskComplete():
                 if self.clock.remaining() < -grace:
                     self.log.error('past the deadline by more than {:.0f} s, giving up '
                                    'on the drive home'.format(grace))
                     self.navigator.cancelTask()
                     break
+                now = self.clock.elapsed()
+                if now - last_watch >= 1.0:
+                    last_watch = now
+                    # One TF lookup, deliberately NOT update_budget(): that
+                    # calls BasicNavigator.getPath, which spins on a future with
+                    # no timeout, and a stalled planner would freeze the
+                    # deadline check directly above.
+                    self.check_for_map_jump()
+                    if len(self.map_jumps) > jumps_at_dispatch:
+                        self.log.warn(
+                            'SLAM re-optimised the map mid-return; the goal no '
+                            'longer denotes the start. Re-aiming at the '
+                            'odometry anchor.')
+                        self.navigator.cancelTask()
+                        jumped = True
+                        break
                 time.sleep(0.2)
 
+            if jumped:
+                continue
+
+            attempts_used += 1
+            attempt = attempts_used
             self.final_pose = self.pose()
             distance = self.distance_home()
             if distance is not None and distance <= tolerance:
@@ -900,6 +1079,13 @@ class MissionControl:
             'goals_sent': self.goals_sent,
             'goals_reached': self.goals_reached,
             'goals_failed': self.goals_failed,
+            # How much of the run was spent hunting tags after the map was
+            # finished.  A high number here with no extra tags means the arena
+            # was genuinely exhausted; zero means the frontier search never ran
+            # dry and the deadline was the binding constraint.
+            'patrol_goals': self.patrol_goals,
+            'patrol_failures': self.patrol_failures,
+            'camera_sweeps': len(self.swept),
             'map_jumps': self.map_jumps,
             'return_anchored_on': 'odometry' if self.map_jumps else 'map',
             'home_goal_used': None if self.home_goal() is None else {

@@ -71,7 +71,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import LaserScan
 
 
-def map_range(value, horizon, floor, no_return):
+def map_range(value, horizon, floor, no_return, zero_is_no_return=True):
     """One ray's reported range, rewritten for Karto and Nav2.
 
     Split out from the node so the rule can be tested without a running graph,
@@ -81,6 +81,23 @@ def map_range(value, horizon, floor, no_return):
     can clear anything.
     """
     if not math.isfinite(value) or value >= horizon:
+        return no_return
+    if value == 0.0 and zero_is_no_return:
+        # A real LDS reports 0.0 for "this ray came back with nothing", where
+        # the Gazebo model reports inf.  Both mean the same thing and both have
+        # to be traced as free space.
+        #
+        # This is CLAUDE.md defect 1 waiting to happen on hardware, and the
+        # simulation cannot show it: mapping 0.0 to NaN below made Karto discard
+        # every open direction, which is precisely the failure where the robot
+        # maps the metre of wall beside it, finds frontiers in all directions at
+        # once, and declares the arena explored without moving.
+        #
+        # Safe because 0.0 cannot be a genuine obstacle: the LiDAR sits near the
+        # middle of a robot of radius 0.105 m, so anything it could legitimately
+        # report below range_min is already touching the chassis.  If a driver
+        # ever does use 0.0 for a real near return, set zero_is_no_return False
+        # and it goes back to being NaN.
         return no_return
     if value <= floor:
         # Something is there but the distance is not trustworthy.  NaN is the
@@ -113,12 +130,18 @@ class ScanPreprocess(Node):
         # the ray again, which is the bug this node exists to fix.
         self.declare_parameter('published_range_max', 25.0)
         self.declare_parameter('sensor_min_range', 0.12)
+        # Whether a reported 0.0 means "no return" (real LDS hardware) rather
+        # than "an obstacle at zero range" (nothing reports that).  Gazebo uses
+        # inf and never exercises this; the robot does.  See map_range.
+        self.declare_parameter('zero_is_no_return', True)
 
         self.sensor_max = float(self.get_parameter('sensor_max_range').value)
         self.auto_max = self.sensor_max <= 0.0
         self.sensor_min = float(self.get_parameter('sensor_min_range').value)
         self.no_return = float(self.get_parameter('no_return_range').value)
         self.published_max = float(self.get_parameter('published_range_max').value)
+        self.zero_is_no_return = bool(
+            self.get_parameter('zero_is_no_return').value)
 
         if self.published_max <= self.no_return:
             self.get_logger().error(
@@ -164,7 +187,8 @@ class ScanPreprocess(Node):
         # the driver said, and scan.range_max is about to stop being that.
         driver_max = scan.range_max
 
-        ranges = [map_range(v, horizon, floor, self.no_return)
+        ranges = [map_range(v, horizon, floor, self.no_return,
+                            self.zero_is_no_return)
                   for v in scan.ranges]
         no_return = sum(1 for v in ranges if v == self.no_return)
         too_close = sum(1 for v in ranges if v != v)

@@ -49,13 +49,25 @@ tighter — so that the drift between where TF believes the robot is and where i
 stands still leaves it inside the circle that scores. Measured SLAM drift is 3–8 cm, so the
 15 cm of margin is real.
 
-**Finish as early as the arena allows; the deadline is a safety net, not a target.** The
-rubric pays nothing extra for finishing early, but a run that ends the moment it has
-everything wins a tie on time and cannot be caught out by a slow return. The mission already
-returns as soon as the frontier search is exhausted, and `stop_after_tags` ends it the moment
-a known tag count is in hand — 2 tags in a test run took 107 s of a 600 s window, home with
-493 s unused. **Speed must never preempt coverage**: a tag is +50 and finishing early is +0,
-so leave the arena early only when there is nothing left to find.
+**Never come home early with time on the clock.** The rubric pays nothing for finishing early
+and +50 for every tag, so an unused second is only ever a wasted one. This used to be the other
+way round: the mission returned the moment the frontier search ran dry, and the 730-point
+reference run ended with **84 s unused, 68% of the arena mapped and six of eleven tags never
+found**.
+
+The mistake was treating a finished map as a finished search. **They are not the same job.** The
+LiDAR sees 360°, so a wall gets mapped from whatever heading the robot happened to have; the
+camera sees 55°, so that same wall is only *photographed* if the robot was pointing at it.
+Coverage of positions is not coverage of viewing directions, and only the second one finds tags.
+
+So when frontiers run out and the clock has not, the robot now **patrols**: it drives to known
+free space it has not yet swept the camera from, sweeps there, and repeats until the return
+budget — not the frontier list — sends it home (`patrol.py`). The only honest reason to stop
+early is that every reachable place has been looked at from, and that is now what "exploration
+complete" means.
+
+`stop_after_tags` remains the one deliberate early exit, and it stays at `0` (disabled) unless
+the organisers announce the tag count. Leaving with tags unfound costs 50 each.
 
 **The deadline still dominates the downside.** On-time (+150) versus one minute late (-30) is
 a 180-point swing, worth 3.6 tags. The mission timer and the go-home behaviour were built
@@ -64,13 +76,10 @@ first and are re-estimated from a real planner path every three seconds.
 **Accuracy is the smallest term.** +30 total, not per tag. This is why `max_detection_range`
 is set by what can be *decoded* rather than what can be decoded *precisely*.
 
-**Turning on the spot is not wasted time, but waiting is.** Spinning was measured at 48% of
-one 516 s run, so it was the obvious thing to cut. It is not: across four full runs, removing
-or halving the camera sweep left tag count unchanged at 4 and cost the *localisation* — the
-accuracy award went 30 → 0 and the final return went 3 cm → 21 cm, because a full turn feeds
-slam_toolbox about thirty well-constrained pose-graph nodes from a known position. What was
-genuinely wasted was **waiting**: the recovery ladder sat idle 25 s before each of three
-turns. That is now 6 s and one turn.
+**The camera sweep is worth keeping. Its *speed* was costing us a minute a run.** Spinning was
+measured at 48% of one 516 s run. The A/B below was read as proving the sweep pays for itself
+through localisation, and the sweep was left slow on that basis. That reading was wrong, and it
+is worth being precise about why, because it is the most expensive mistake in this file.
 
 | Camera sweep | Tags | Accuracy | Return | Total |
 |---|---|---|---|---|
@@ -78,8 +87,39 @@ turns. That is now 6 s and one turn.
 | Half turn (π) | 4 | +0 | 0.21 m | 650 |
 | None | 4 | +0 | 0.21 m | 650 |
 
-Priority order: **timed return, then map export, then coverage, then tag count, then accuracy
-— and among equal outcomes, the shorter run.**
+The stated mechanism — "a full turn feeds slam_toolbox about thirty well-constrained pose-graph
+nodes" — **does not exist**. From `slam_toolbox_common.cpp` (Humble 2.6.10):
+
+```cpp
+// check moved enough, within 10% for correction error
+const double dist2 = last_pose.SquaredDistance(pose);
+if (dist2 < 0.8 * min_dist2 || scan_ctr < 5) { return false; }
+```
+
+`shouldProcessScan` gates on **translation only**. There is no heading test, so a robot turning on
+the spot has `dist2 ≈ 0` and every scan of that turn is discarded before Karto sees it — our
+`minimum_travel_heading` never gets a say. Which is obvious once stated: the LDS-02 is a **360°
+sensor**, so rotating it in place acquires no new range data. A stationary turn contributes
+**zero** pose-graph nodes and **zero** grid cells.
+
+So the table is a **confound**, not a mechanism: n=1 per condition, and a different sweep setting
+sends the robot down a different path, into different loop closures. The localisation difference
+was path luck. Three claims elsewhere in the repo inherited the same false premise and are also
+wrong — the recovery spin does not "refresh the map", and `initial_spin` does not "seed the map"
+(the startup speckle it was blamed on is a `min_pass_through` effect that only *translation*
+clears).
+
+What the sweep **does** do is point a 55° camera at tags, which is worth +50 each and is why it
+stays. But that makes it a camera action, so its speed is bounded by **motion blur, not SLAM** —
+and it was running at 1.0 rad/s against the burger's 2.84 ceiling. Now 1.9 rad/s over 5.30 rad
+(2π minus one camera FOV re-photographs nothing), which halves every turn in the run.
+
+**The lesson is the general one:** a measured number and an explanation of that number are
+different things, and only the first was measured. Before trusting a mechanism in this file,
+check it against the source.
+
+Priority order: **timed return, then map export, then coverage, then tag count, then accuracy —
+and among equal outcomes, the shorter run.**
 
 ---
 
@@ -105,6 +145,7 @@ All five are written and validated end to end in simulation, plus a sixth nobody
 | 4 | **Tag manager** | `tag_manager.py` + `tag_map.py`. Reads each tag's parent frame from TF so it needs no per-environment configuration; fuses repeats weighted by 1/range² behind an outlier gate |
 | 5 | **Orchestrator** | `mission_control.py`. A plain state machine: `INIT → EXPLORE → RETURN → FINALIZE`. A behaviour tree is unrewarded here and slower to debug under time pressure |
 | 6 | **Scan preprocessing** | `scan_preprocess.py`. Not foreseen, and the difference between a working system and a broken one — see section 8 |
+| 7 | **Tag patrol** | `patrol.py` (no rclpy, 21 offline tests) + `patrol_target` in `mission_control.py`. What the robot does when the map is finished and the clock is not: keeps sweeping the camera from places it has not looked, instead of going home to wait |
 
 Measured in simulation over a 600 s run: SLAM drift **3–8 cm** against Gazebo ground truth, tags
 localised to **1–7 cm**, return within 10 cm of the start, all deliverables written.
@@ -300,7 +341,8 @@ from the sensor horizon and is now configured separately.
 
 **7. Exploration gave up after three seconds.** Patience was counted in state-machine ticks, and
 eight ticks at 0.4 s is what a map looks like immediately after startup. Now measured in seconds and
-backed by recovery spins. A bootstrap rotation also seeds the map before the first frontier query.
+backed by recovery spins. A bootstrap rotation gives the camera a look around the start
+pose. (It was believed to seed the map as well. It does not — see section 2.)
 
 **8. A single planner refusal blacklisted a frontier permanently.** Early in a run the costmap
 between the robot and a frontier is mostly unknown and "no path" means "not yet". Planner refusals

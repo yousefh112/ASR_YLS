@@ -142,7 +142,8 @@ ros2 launch asr_summer_school mission.launch.py \
     output_directory:=~/asr_mission_output
 ```
 
-The robot spins once on the spot to seed the map, then explores. Put it at the
+The robot sweeps the camera once on the spot — for tags, not for the map; a
+stationary turn feeds slam_toolbox nothing — then explores. Put it at the
 start point and leave it: touching it costs 50 points.
 
 **To stop early and still keep the deliverables**, Ctrl-C the mission terminal
@@ -178,6 +179,64 @@ Two things it cannot check, so check them yourself:
       only way to confirm the whole detection path end to end before a run.
 
 Then drive it a metre with the pad and watch the map in RViz.
+
+#### The four things simulation structurally cannot tell us
+
+Every number in `results/` comes from Gazebo, and Gazebo differs from the robot
+in ways that are invisible until the robot runs. These four checks **must**
+happen on hardware, in this order, because each is worth more than anything the
+simulation measures.
+
+**1. The no-return encoding.** Gazebo reports `inf` for a ray that hits nothing;
+a real LDS reports `0.0`. Both must become free space — if `0.0` is treated as a
+near obstacle the mapper discards every open direction and the mission ends
+seconds in with the arena "explored". `scan_preprocess` handles both
+(`zero_is_no_return`, default true) and `preflight` checks it. Confirm the
+no-return value appears in open space:
+
+```bash
+ros2 topic echo /scan_filtered --field ranges --once | tr ',' '\n' | sort -u | tail -3
+```
+
+Expect the 20 m no-return value. If every open ray is `nan`, this is the bug.
+
+**2. Tag decode range.** `config/apriltag.yaml` sets `decimate: 1.0`, because at
+the vendored `2.0` a 16 cm tag stops decoding at about 2.5 m while the mission
+gates detections at 5 m. The Gazebo camera is 1920x1080 with no motion blur, so
+it cannot show this either way. Walk a tag backwards and watch where detections
+stop:
+
+```bash
+ros2 topic echo /camera/detections --field detections
+```
+
+Set `max_detection_range` in `param_mission.yaml` to whatever range it actually
+reaches. A gate wider than the detector is a gate that admits nothing.
+
+**3. Sweep speed against motion blur.** The camera sweep runs at
+`max_rotational_vel: 1.9` rad/s. That number is bounded by blur, **not** by
+SLAM — a stationary turn contributes nothing to the map at any speed, see
+CLAUDE.md section 2. Gazebo renders no motion blur, so 1.9 is unvalidated on
+hardware. Sweep in front of a tag and confirm detections still arrive:
+
+```bash
+ros2 topic hz /camera/detections
+```
+
+If they drop out, lower `max_rotational_vel` in `param_nav2.yaml` until they
+come back. This is the one speed change that can cost tags.
+
+**4. LiDAR horizon.** `max_laser_range` is 3.4 m, which is the LDS-01 and the
+simulator. An LDS-02 reaches considerably further, and every metre of horizon is
+area mapped per stop. Check what the driver reports:
+
+```bash
+ros2 topic echo /scan --field range_max --once
+```
+
+Raising it is **not** free — read the header of `scan_preprocess.py` first, and
+note that `slam_toolbox.launch.py` overwrites this key, so editing the YAML
+alone does nothing.
 
 ## 4. What comes out
 

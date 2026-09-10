@@ -48,9 +48,19 @@ def generate_launch_description():
     start_nav2 = LaunchConfiguration('start_nav2')
     autostart = LaunchConfiguration('autostart')
 
+    # Defaults to the ROBOT, not the simulation.  This is the one command run
+    # on competition day, and defaulting it to true meant a single forgotten
+    # argument left every node waiting on a /clock that nothing publishes: the
+    # mission timer never advances, the deadline never arrives, the robot never
+    # comes home, and there is no error anywhere to say why.  bringup.launch.py
+    # already hard-codes false, so the two disagreed.
+    #
+    # Nothing is lost in simulation: sim_run.sh and the runbook's three-terminal
+    # form both pass use_sim_time:=true explicitly.
     declare_use_sim_time = DeclareLaunchArgument(
-        'use_sim_time', default_value='true',
-        description='Use the Gazebo clock')
+        'use_sim_time', default_value='false',
+        description='Use the Gazebo clock.  true in simulation, false on the '
+                    'robot.  sim_run.sh passes true; the robot needs nothing.')
     declare_mission_params_file = DeclareLaunchArgument(
         'mission_params_file',
         default_value=os.path.join(package_dir, 'config', 'param_mission.yaml'),
@@ -65,12 +75,19 @@ def generate_launch_description():
     declare_output_directory = DeclareLaunchArgument(
         'output_directory', default_value='~/asr_mission_output',
         description='Where the map, semantic map and report are written')
+    # MUST track scan_rotation in config/param_mission.yaml.  RewrittenYaml
+    # substitutes this key unconditionally, so whatever is written here WINS
+    # over the config file and the config file's value is silently ignored -
+    # which is how a 5.30 in the yaml kept producing 6.28 rad sweeps in the log.
+    # Any of the four rewritten keys has this hazard; it is the price of being
+    # able to override them from the command line on the day.
     declare_scan_rotation = DeclareLaunchArgument(
-        'scan_rotation', default_value='6.28',
+        'scan_rotation', default_value='5.30',
         description='Radians to turn on the spot at each frontier so the '
-                    '60-degree camera sweeps the area.  0.0 disables it.  '
-                    'Costs about 8 s per goal, so it is the first thing to '
-                    'trade away when the run has to be short.')
+                    '55-degree camera sweeps the area.  0.0 disables it.  '
+                    '2*pi minus one field of view is a complete camera sweep; '
+                    'a full circle re-photographs the first frame.  About 3 s '
+                    'per goal at the configured 1.9 rad/s.')
     declare_stop_after_tags = DeclareLaunchArgument(
         'stop_after_tags', default_value='0',
         description='Go home as soon as this many unique tags are found. '

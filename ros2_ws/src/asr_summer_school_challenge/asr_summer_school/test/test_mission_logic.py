@@ -554,6 +554,32 @@ def test_readings_below_the_sensor_minimum_become_nan():
     assert map_range(0.05, 3.5, 0.12, 20.0) != map_range(0.05, 3.5, 0.12, 20.0)
 
 
+def test_a_zero_reading_is_a_no_return_not_a_near_obstacle():
+    """The encoding a real LDS uses where the Gazebo model uses inf.
+
+    Mapping 0.0 to NaN makes Karto discard every open direction, which is
+    CLAUDE.md defect 1 exactly - the robot maps the wall beside it, sees
+    frontiers in every direction at once and declares the arena explored
+    without moving.  The simulation cannot catch this: Gazebo reports inf.
+    """
+    assert map_range(0.0, 3.5, 0.12, 20.0) == 20.0
+
+
+def test_zero_can_be_treated_as_a_near_obstacle_if_a_driver_needs_it():
+    result = map_range(0.0, 3.5, 0.12, 20.0, zero_is_no_return=False)
+    assert result != result          # NaN
+
+
+def test_genuinely_close_readings_are_still_nan_not_no_return():
+    """Only exact zero is the no-return code; 5 cm is a real, untrusted return.
+
+    Getting this wrong would raytrace straight through an obstacle touching the
+    robot and clear it out of the costmap.
+    """
+    assert map_range(0.05, 3.5, 0.12, 20.0) != 20.0
+    assert map_range(0.119, 3.5, 0.12, 20.0) != 20.0
+
+
 def test_the_no_return_range_sits_inside_the_published_range_max():
     """`OccupancyGrid::AddScan` discards any reading >= range_max before it can
     trace anything, which is the original bug: `inf >= 3.5` meant open

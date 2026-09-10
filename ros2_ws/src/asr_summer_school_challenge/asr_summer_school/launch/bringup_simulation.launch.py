@@ -63,7 +63,17 @@ def generate_launch_description():
 		output='screen',
 		parameters=[
 			{'use_sim_time': use_sim_time},
-			os.path.join(get_package_share_directory('turtlebot3_perception'), "config", "apriltag.yaml"
+			# apriltag_SIM.yaml, not apriltag.yaml: Gazebo's camera is 1920x1080
+			# and the robot's RealSense is 640x480, so matching the robot means
+			# matching the detector's effective resolution rather than copying
+			# its decimate.  That file explains the arithmetic.
+			#
+			# A per-parameter override dict here does NOT work - a later dict
+			# loses to an earlier params file rather than overriding it, which
+			# was verified with `ros2 param get /camera/apriltag
+			# detector.decimate` returning the file's value.  Hence a whole
+			# separate file.
+			os.path.join(get_package_share_directory('asr_summer_school'), "config", "apriltag_sim.yaml"
     )],
 		remappings=[('image_rect', 'image_raw')]
 	)

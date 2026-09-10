@@ -174,7 +174,9 @@ INIT ──▶ EXPLORE ──▶ RETURN ──▶ FINALIZE ──▶ DONE
 **INIT.** Wait for Nav2 (`waitUntilNav2Active(localizer='controller_server')` — there is
 no AMCL, SLAM provides `map→odom`). Ask TF which base frame actually exists rather than
 trusting the config. Record home in **both** the `map` and `odom` frames. Then turn a full
-circle on the spot to seed the map: one stationary scan gives slam_toolbox a speckled map
+circle on the spot for the camera. This was believed to seed the map too; it does not, because
+slam_toolbox discards every scan taken without translating (CLAUDE.md §2). One stationary scan
+gives slam_toolbox a speckled map
 whose unknown gaps the frontier detector reads as frontiers, all clustered onto the
 robot's own position.
 
@@ -193,7 +195,7 @@ robot's own position.
    direction of travel — but only while there is slack, because a tag is 50 points and
    being a minute late is 180.
 
-If no frontier can be chosen for 25 s the robot spins to refresh the map, up to three
+If no frontier can be chosen for 6 s the robot clears the costmaps and turns, up to one
 times. If every remaining frontier is blacklisted it drops the whole blacklist and tries
 again rather than declare the arena explored — a run that banned its last frontier went
 home with 5 % of the arena mapped.

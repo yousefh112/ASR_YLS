@@ -95,10 +95,15 @@ def generate_launch_description():
 		)
 	)
 
+	# Ours, not turtlebot3_perception's.  Same composable node and the same
+	# detection2landmark alongside it; the difference is the detector config,
+	# which the vendored launch bakes in with no override hook.  At its
+	# decimate a 16 cm tag stops being decodable at about 2.5 m, half the range
+	# the mission gates detections at.  See config/apriltag.yaml.
 	apriltag = IncludeLaunchDescription(
 		PythonLaunchDescriptionSource(
 			PathJoinSubstitution(
-				[FindPackageShare('turtlebot3_perception'), 'launch', 'apriltag.launch.py']
+				[FindPackageShare('asr_summer_school'), 'launch', 'apriltag.launch.py']
 			)
 		)
 	)

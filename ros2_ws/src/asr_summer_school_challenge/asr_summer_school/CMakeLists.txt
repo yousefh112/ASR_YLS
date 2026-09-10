@@ -104,6 +104,16 @@ if(BUILD_TESTING)
   target_link_libraries(test_frontier_detection frontier_detection)
   ament_target_dependencies(test_frontier_detection rclcpp nav_msgs geometry_msgs
     visualization_msgs)
+
+  # The offline mission-logic suite - the return budget, frontier ranking, tag
+  # fusion, the map/semantic-map export and the patrol selector.  These were
+  # written, and were passing, but were never registered here, so `colcon test`
+  # reported a clean run while skipping every one of them.  A guard nothing
+  # executes is indistinguishable from no guard at all, and it is worse than
+  # none, because it reads as coverage.
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_mission_logic test/test_mission_logic.py)
+  ament_add_pytest_test(test_patrol test/test_patrol.py)
 endif()
 
 ament_package()

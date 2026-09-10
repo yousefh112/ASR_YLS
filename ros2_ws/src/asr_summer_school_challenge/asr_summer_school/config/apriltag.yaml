@@ -1,0 +1,59 @@
+# AprilTag detector settings for the challenge.
+#
+# Our copy, not turtlebot3_perception's.  The vendored launch file loads its own
+# config with `yaml_to_dict` and passes it straight to the composable node, so
+# there is no override hook and no way to change a detector setting from a
+# launch argument.  Rather than edit a vendored package, asr_summer_school ships
+# this file and its own apriltag.launch.py, which is otherwise identical.
+#
+# The one substantive change is `decimate`.
+#
+# Why decimate 2.0 could not see the tags it was configured to look for
+# ---------------------------------------------------------------------
+# The RealSense is launched at 640x480 with a horizontal field of view of about
+# 55 degrees, so one pixel spans 0.96 rad / 640 = 1.5 mrad.  A 0.16 m tag at
+# range r therefore spans 0.16 / r / 0.0015 pixels:
+#
+#     range      full res     after decimate 2.0
+#     1 m        107 px       53 px
+#     2 m         53 px       27 px
+#     3 m         36 px       18 px
+#     5 m         21 px       11 px
+#
+# `decimate` downsamples the image before quad detection, so the second column
+# is what the detector actually works on.  A 36h11 tag is 8x8 data cells inside
+# a one-cell border - ten cells across - and needs on the order of two pixels
+# per cell to be decoded at all.  Twenty-odd pixels is the floor.
+#
+# At decimate 2.0 that floor is reached at about 2.5 m, while
+# mission_control's `max_detection_range` was set to 5.0.  The gate was
+# admitting detections the detector could never produce: half the configured
+# range was unreachable, and no error was raised anywhere - the tags simply
+# were not found, which looks exactly like tags that were not there.
+#
+# At 1.0 the same floor sits near 5 m and matches the gate.  The cost is CPU,
+# which is why threads goes to 2; the detector is the one thing in the stack
+# whose output is worth 50 points a time.
+#
+# If the NUC turns out not to have the headroom, lower the CAMERA frame rate
+# before raising decimate again: the sweep takes about 3 s, so even 10 fps puts
+# thirty frames on the arena, and range matters more than rate.
+camera:
+  apriltag:
+    ros__parameters:
+      image_transport: raw
+      family: 36h11
+      # Physical edge length of the printed tag, in metres.  If the arena's
+      # tags are not 16 cm this is wrong and every tag position is wrong with
+      # it, proportionally - measure one before the run.
+      size: 0.16
+      profile: false
+
+      max_hamming: 0
+      detector:
+        threads: 2
+        decimate: 1.0
+        blur: 0.0
+        refine: true
+        sharpening: 0.25
+        debug: false

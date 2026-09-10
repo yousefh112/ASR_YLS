@@ -30,7 +30,20 @@ mission_control:
     # Re-estimated from a path the Nav2 planner actually produced, so these only
     # shape the margin around it.  Returning on time is +150 against -30 for a
     # minute late, so the margin is deliberately generous.
-    return_speed: 0.15             # effective m/s home, well under the 0.22 top
+    # Effective m/s on the way home.  Measured, not guessed: in the harness run
+    # the robot was sent home from 6.75 m out and arrived 36.4 s later, i.e.
+    # 0.19 m/s over an already-mapped route with no sweeps and no frontier
+    # stops.  At 0.15 with a 1.3 safety factor the model charged 8.67 s/m
+    # against a realised 5.26 s/m - a 2.2x reserve, and the reference run gave
+    # back 84 s of its 600 s window because of it, standing at the start doing
+    # nothing while six tags went unfound.
+    #
+    # 0.18 still charges 7.22 s/m, 37% more than measured, and the margin grows
+    # with path length rather than shrinking, so the estimate stays conservative
+    # at every distance.  Break-even needs the return to degrade to 0.125 m/s.
+    # That is what the 1.3 factor and the 20 s fixed reserve are for, so neither
+    # of those moves.
+    return_speed: 0.18
     return_safety_factor: 1.3
     return_fixed_margin: 20.0      # cancel the goal, final approach, export
     budget_update_period: 3.0
@@ -64,6 +77,12 @@ mission_control:
     # How long one frontier goal may run, scaled by how far away it is:
     # distance / return_speed * factor, clamped.  A flat timeout is either
     # generous for a 2 m hop or mean for a 7 m one, and a run contains both.
+    # goal_speed is NOT return_speed, though it was until the return budget was
+    # retuned.  Sharing one key meant raising the return speed shortened every
+    # goal timeout by the same ratio, and a timed-out goal costs a wasted trip
+    # plus a frontier banned for frontier_failure_ttl.  Held at the old 0.15 so
+    # goal patience is unchanged by that retune.
+    goal_speed: 0.15
     goal_timeout_min: 40.0
     goal_timeout_max: 90.0
     goal_timeout_factor: 2.0
@@ -83,10 +102,20 @@ mission_control:
     no_frontier_timeout: 6.0
     recovery_spins: 1
 
-    # One full turn before exploring starts.  A single stationary scan leaves
-    # unknown gaps scattered through the free space; the detector reads every
-    # gap as a frontier and clusters the lot onto the robot's own position.
-    initial_spin: 6.28
+    # One turn before exploring starts, for the CAMERA: a tag may be visible
+    # from the start pose and this is the only look the robot gets at it from
+    # here.
+    #
+    # It does NOT seed the map, which is what this comment used to claim.  A
+    # stationary turn feeds slam_toolbox nothing at all.  The startup speckle
+    # that motivated it - unknown gaps riddling the free space, every gap read
+    # as a frontier, the lot clustered onto the robot's own position, and
+    # "exploration complete" three seconds in - is a min_pass_through effect:
+    # from a standstill the mapper has processed exactly one scan, so almost no
+    # cell has been crossed the two times it needs to stop being unknown.  The
+    # thing that actually clears it is translation, because only translation
+    # gets a second scan processed.
+    initial_spin: 5.30
     spin_time_allowance: 25.0
 
     # Frontier ranking.  See frontier_policy.FrontierPolicy for what each does.
@@ -125,14 +154,50 @@ mission_control:
     horizon_slack_threshold: 150.0
     min_horizon: 1.5
 
+    # ---------------- patrol ----------------
+    # What the robot does when the frontier search is exhausted but the clock is
+    # not.  It used to go home and stand there: the reference run finished with
+    # 84 s of its window unused and six of eleven tags never found.
+    #
+    # Finishing the map is not finishing the hunt.  The LiDAR sees 360 degrees,
+    # so a wall gets mapped from whatever heading the robot happened to have;
+    # the camera sees about 55, so that same wall is only photographed if the
+    # robot was pointing at it.  Patrol drives to known free space the camera
+    # has not swept from and sweeps there.  See patrol.py.
+    #
+    # A candidate closer than patrol_spacing to somewhere already swept is not
+    # worth the trip - at 2.0 m with a 55 degree camera the sweeps overlap
+    # comfortably without re-photographing the same corner.
+    patrol_spacing: 2.0
+    patrol_clearance: 0.25         # obstacle-free disc a patrol point needs
+    # Metres of detour accepted per metre of extra novelty.  Nearest-first
+    # re-sweeps one corner; farthest-first crosses the arena for a single look.
+    patrol_travel_weight: 0.35
+    # Give up on patrolling after this many unreachable patrol points, rather
+    # than spending the endgame failing to reach the same place.
+    patrol_max_failures: 4
+
     # Rotate on arrival at each frontier so the forward-facing camera sweeps
     # the area instead of only the direction of travel.  The camera sees about
     # 60 degrees: without this, a tag on a wall the robot drove past is never
     # detected.  A sweep costs roughly ten seconds and a tag is worth 50
     # points, so it pays - but only while there is slack, because being a
     # minute late costs 180.  Set to 0.0 to turn sweeping off entirely.
-    scan_rotation: 6.28
-    scan_rotation_min_slack: 90.0
+    # 5.30, not 6.28.  The camera sees about 55 degrees, so the last 55 degrees
+    # of a full turn re-photographs what the first frame already covered: a
+    # rotation of 2*pi - FOV gives the camera a complete 360 degree sweep.
+    #
+    # This is a camera number, not a SLAM one.  A stationary turn contributes
+    # nothing whatsoever to the map - slam_toolbox's shouldProcessScan gates on
+    # translation alone, and a 360 degree LiDAR learns nothing by spinning - so
+    # there is no mapping reason to prefer a full circle.  See the long note on
+    # behaviour_server.max_rotational_vel in param_nav2.yaml.
+    scan_rotation: 5.30
+    # Was 90 s, which skipped the sweep for the whole endgame.  A sweep now
+    # costs about 3 s (5.30 rad at 1.9 rad/s) rather than 7, and spin_in_place
+    # already aborts the moment must_return() flips, so this gate is a backstop
+    # against starting one that cannot finish, not a time-management policy.
+    scan_rotation_min_slack: 20.0
 
     # ---------------- frames and output ----------------
     map_frame: 'map'

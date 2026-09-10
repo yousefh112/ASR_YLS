@@ -119,7 +119,15 @@ controller_server:
       min_vel_y: 0.0
       max_vel_x: 0.22
       max_vel_y: 0.0
-      max_vel_theta: 1.0
+      # Governs turning while FOLLOWING a path - the swing onto a new heading at
+      # the start of each goal, and RotateToGoal at the end.  Distinct from the
+      # sweep, which is behaviour_server's Spin (see max_rotational_vel).
+      # Raising this alone would be a silent no-op: velocity_smoother clamps the
+      # controller's angular output to its own max_velocity, so that has to move
+      # with it.  1.5 rather than the sweep's 1.9 because this rate is used while
+      # translating, where an aggressive yaw rate makes DWB's trajectories less
+      # stable in a corridor.
+      max_vel_theta: 1.5
       min_speed_xy: 0.0
       max_speed_xy: 0.22
       min_speed_theta: 0.0
@@ -366,8 +374,12 @@ velocity_smoother:
     scale_velocities: False
     feedback: "OPEN_LOOP"
     # TurtleBot3 Burger limits, not the reference robot's 0.26/1.0.
-    max_velocity: [0.22, 0.0, 1.0]
-    min_velocity: [-0.22, 0.0, -1.0]
+    # The angular term must track FollowPath.max_vel_theta: this smoother sits in
+    # the cmd_vel path to the wheels, so whichever of the two is lower is the one
+    # that actually applies.  Raising one without the other silently wastes the
+    # change - the same shape as defect 9.
+    max_velocity: [0.22, 0.0, 1.5]
+    min_velocity: [-0.22, 0.0, -1.5]
     max_accel: [2.5, 0.0, 3.2]
     max_decel: [-2.5, 0.0, -3.2]
     odom_topic: "odom"
@@ -398,7 +410,34 @@ behavior_server:
     transform_tolerance: 0.1
     use_sim_time: False
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.0
+    # This is the ONLY clamp on the camera sweep: mission_control.spin_in_place
+    # drives Nav2's Spin behaviour, which reads its rate from here and never
+    # goes through the controller or the velocity smoother.
+    #
+    # It used to be 1.0, on the belief that a slow full turn fed slam_toolbox
+    # about thirty pose-graph nodes and that spinning faster would cost
+    # localisation.  That belief is false.  slam_toolbox's shouldProcessScan
+    # (slam_toolbox_common.cpp, Humble 2.6.10) gates on TRANSLATION only:
+    #
+    #     const double dist2 = last_pose.SquaredDistance(pose);
+    #     if (dist2 < 0.8 * min_dist2 || scan_ctr < 5) { return false; }
+    #
+    # There is no heading test.  A robot turning on the spot has dist2 ~ 0, so
+    # every scan taken during a stationary spin is rejected before Karto sees
+    # it, and our minimum_travel_heading never gets a say.  Which is obvious in
+    # hindsight: the LDS-02 is a 360 degree sensor, so rotating it in place adds
+    # no range information at all.  A stationary turn contributes exactly zero
+    # pose-graph nodes and zero occupancy-grid cells.
+    #
+    # The sweep is therefore a pure CAMERA action - it exists to point a 60
+    # degree RGB field of view at tags - and its speed is bounded by motion
+    # blur, not by SLAM.  1.9 rad/s is two thirds of the burger's 2.84 ceiling
+    # and halves every turn in the run.
+    #
+    # If tags start going missing on the real robot, blur is the reason and this
+    # is the number to lower - check it with `ros2 topic hz /camera/detections`
+    # while sweeping in front of a tag before touching anything else.
+    max_rotational_vel: 1.9
     min_rotational_vel: 0.4
     rotational_acc_lim: 3.2
 

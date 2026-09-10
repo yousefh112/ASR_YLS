@@ -1,0 +1,37 @@
+# AprilTag settings for the SIMULATION only.  The robot uses apriltag.yaml.
+#
+# The two differ in one number, for one reason: the cameras are not the same
+# size.  Gazebo's is 1920x1080, the RealSense on the robot is 640x480 - measured,
+# not assumed (`ros2 topic echo /camera/camera_info`).
+#
+# What decides whether a tag decodes is how many pixels span it AFTER decimation,
+# so matching the robot means matching the EFFECTIVE resolution, not the
+# parameter.  The robot's decimate 1.0 on 640 px gives 640; the closest integer
+# match on 1920 px is decimate 2.0, giving 960.
+#
+# Copying the robot's 1.0 here would be wrong twice over: the simulated detector
+# would see further than the real one ever can, and at nine times the pixels it
+# would drop frames during a camera sweep - so the simulation would be measuring
+# a detector that is not going to be run.  It is also what every run in results/
+# used, which keeps A/B comparisons against those numbers honest.
+#
+# Keep the rest of this file in step with apriltag.yaml.
+camera:
+  apriltag:
+    ros__parameters:
+      image_transport: raw
+      family: 36h11
+      # Physical edge length of the printed tag, in metres.  If the arena's
+      # tags are not 16 cm this is wrong and every tag position is wrong with
+      # it, proportionally - measure one before the run.
+      size: 0.16
+      profile: false
+
+      max_hamming: 0
+      detector:
+        threads: 2
+        decimate: 2.0
+        blur: 0.0
+        refine: true
+        sharpening: 0.25
+        debug: false
