@@ -1241,6 +1241,22 @@ class MissionControl:
                 'returned home' if self.returned_home else 'NOT home',
                 report['elapsed_s'], self.clock.duration,
                 self.goals_reached, self.goals_sent))
+
+        # One unmissable line naming the absolute directory.  The individual
+        # files are logged as they are written, but scattered up the log among
+        # everything else, and `output_directory` is usually given as a ~ path
+        # that never appears expanded anywhere.  Someone who has just watched a
+        # run finish should not have to go looking for its output.
+        if written:
+            self.log.info('=== {} files written to: {} ==='
+                          .format(len(written), os.path.abspath(directory)))
+            self.log.info('===   {} ==='
+                          .format('  '.join(sorted(os.path.basename(f)
+                                                   for f in written))))
+        else:
+            self.log.error('=== NO deliverables were written - see the errors '
+                           'above.  The grid and the semantic map are worth '
+                           '200 points. ===')
         return written
 
     # ------------------------------------------------------------------ #

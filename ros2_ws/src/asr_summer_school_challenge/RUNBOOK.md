@@ -121,16 +121,27 @@ ros2 launch asr_summer_school bringup_simulation.launch.py use_sim_time:=true
 
 # 3  Nav2 + the mission
 ros2 launch asr_summer_school mission.launch.py use_sim_time:=true \
-    mission_duration:=240.0 output_directory:=~/asr_mission_output
+    mission_duration:=240.0 output_directory:=~/asr_mission_output/manual
 
 # 4  optional: watch it
 ros2 launch turtlebot3_bringup rviz2.launch.py use_sim_time:=true
 ```
 
+**Give every run its own subdirectory**, as above. `output_directory` is written
+into literally, so pointing several runs at `~/asr_mission_output` itself leaves
+their files loose in the parent, mixed in with the tagged folders `sim_run.sh`
+creates — and a run then looks like it produced nothing when in fact its results
+are sitting one level up. The last line the mission prints is the absolute path
+it used; if in doubt, read that.
+
+Note also that this three-terminal form prints to the terminal and keeps no
+`mission.log`. `sim_run.sh` below keeps one, which is why it is the better way
+to iterate.
+
 Score the finished run against the arena's own ground truth:
 
 ```bash
-ros2 run asr_summer_school score_report.py --run ~/asr_mission_output
+ros2 run asr_summer_school score_report.py --run ~/asr_mission_output/manual
 ```
 
 ### One command instead of three
@@ -234,10 +245,14 @@ range, and warns if that disagrees with what SLAM was configured for — see
 
 ```bash
 ros2 launch asr_summer_school mission.launch.py \
-    use_sim_time:=false \
-    mission_duration:=<seconds the organisers announce> \
-    output_directory:=~/asr_mission_output
+    mission_duration:=240.0 \
+    output_directory:=~/asr_mission_output/<run name>
 ```
+
+`use_sim_time` is no longer passed: it defaults to false, which is what the robot
+needs. 240 is the announced window — pass a different number only if the
+organisers change it. Give the run its own subdirectory, or its files land loose
+in the parent alongside every other run's.
 
 The robot sweeps the camera once on the spot — for tags, not for the map; a
 stationary turn feeds slam_toolbox nothing — then explores. Put it at the
