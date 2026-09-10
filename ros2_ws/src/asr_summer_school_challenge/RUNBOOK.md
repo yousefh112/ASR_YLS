@@ -186,6 +186,47 @@ address (`192.168.10.1` + the number, zero-padded) — and `setup_env.sh` derive
 both from the single argument, so there is only ever one place to change it. If
 we are reassigned, pass the new number instead and nothing else moves.
 
+### 3.0 Which machine runs what, and why
+
+Run as much as possible **from the laptop**, because the mission orchestrator is
+what writes the deliverables — so they land on the laptop and there is nothing
+to copy off the robot after the run.
+
+| | machine | why it cannot be anywhere else |
+|---|---|---|
+| `rmw_zenohd` | **robot** | the laptop is a client pointed at the robot's `:7447`; the router has to be at that endpoint |
+| `robot_bringup.sh` | **robot** | base, LiDAR and camera drivers open USB devices that are physically plugged into the robot |
+| ↳ apriltag, inside it | **robot** | it has to sit next to the camera — see the bandwidth note below |
+| `mission_run.sh` | **laptop** | Nav2 and the orchestrator. **This is what writes the results**, so run it where you want them |
+
+**Why apriltag cannot move.** Raw 1280×720 RGB at 15 fps is
+`1280 × 720 × 3 × 15` ≈ **330 Mbit/s**. No wifi in the building carries that, and
+compressing it would cost the sharpness the decoder needs. Detection stays next
+to the sensor and only `/camera/detections` — a few hundred bytes — crosses the
+network.
+
+What does cross, in this split: `/scan_filtered` (~8 KB/s), `/map` (~8 KB/s for a
+40 m² arena), `/tf`, `/odom`, the detections and `/cmd_vel`. Well under
+1 Mbit/s.
+
+**The one thing to be aware of: `/cmd_vel` now travels over wifi.** Nav2's
+controller is on the laptop, so every velocity command crosses the link. A stall
+means the robot is briefly driving on its last command. Two things cover that,
+and both are worth confirming before the scored run:
+
+- The OpenCR firmware has a motor watchdog that stops the wheels when commands
+  stop arriving. **Verify it rather than trusting this sentence** — drive slowly
+  with the pad, kill wifi on the laptop, and confirm the robot stops within a
+  second. If it does not, run the mission on the robot instead and copy the
+  results afterwards; a collision is −20 and a runaway robot is worse.
+- Keep the joypad plugged in as the manual stop of last resort. Note it is
+  `robot_bringup.sh` that starts teleop, so the pad plugs into the **robot**. If
+  yours is on the laptop, start bringup with `teleop:=false` and run
+  `ros2 launch asr_summer_school teleop.launch.py` on the laptop instead.
+
+If wifi is unreliable on the day, run `mission_run.sh` over SSH on the robot
+instead — everything still works, the files simply land there and need one `scp`.
+
 ### 3.1 Your laptop, once per session
 
 ```bash
@@ -230,34 +271,47 @@ with a message naming the missing one. Without that check an unset
 `CAMERA_MODEL` surfaces as a `KeyError` from inside `turtlebot3_perception`
 several seconds in, with half the stack already up.
 
-**Use the two logging wrappers, not the bare launches.** They are the same
-commands with everything they print kept, plus a snapshot of the graph either
-side of the run and a single tarball at the end. A run whose only record was a
-terminal that has since been closed cannot be diagnosed afterwards, and there is
-no second attempt on the day.
+**Use the logging wrappers, not the bare launches.** They are the same commands
+with everything they print kept, plus a snapshot of the graph either side of the
+run and a single tarball at the end. A run whose only record was a terminal that
+has since been closed cannot be diagnosed afterwards, and there is no second
+attempt on the day.
+
+Three terminals in total, two of them SSH sessions on the robot:
 
 ```bash
-./robot_bringup.sh myrun                        # terminal 1, leave running
-./robot_run.sh     myrun <seconds>              # terminal 2
+# ROBOT, ssh session 1 - the router.  Leave it running.
+ros2 run rmw_zenoh_cpp rmw_zenohd
+
+# ROBOT, ssh session 2 - drivers, SLAM, camera, apriltag.  Leave it running.
+./robot_bringup.sh myrun
+
+# LAPTOP - Nav2 and the mission.  The results land HERE.
+./mission_run.sh myrun 240
 ```
 
-Both take the same run tag, and everything lands in `~/asr_mission_output/myrun/`.
+Use the same run tag on both. `robot_bringup.sh` writes `bringup.log` into
+`~/asr_mission_output/myrun/` **on the robot**; `mission_run.sh` writes
+everything else into `~/asr_mission_output/myrun/` **on your laptop**, which is
+the point of the split — the scored deliverables need no copying.
+
 The bare launches below are what those wrappers run, for when something needs
 driving by hand.
 
 **Terminal 1 — robot bringup** (base, LiDAR, camera, AprilTag, SLAM, frontier
-detector; no Nav2):
+detector; no Nav2). On the robot:
 
 ```bash
 ros2 launch asr_summer_school bringup.launch.py
-# no joypad plugged in?  add  teleop:=false
+# no joypad plugged into the ROBOT?  add  teleop:=false
 ```
 
 Check the first line `scan_preprocess` prints. It reports the LiDAR's actual
 range, and warns if that disagrees with what SLAM was configured for — see
 [section 5](#5-tuning-for-the-real-arena).
 
-**Terminal 2 — Nav2 and the mission:**
+**Terminal 2 — Nav2 and the mission. On your laptop**, so the deliverables are
+written there:
 
 ```bash
 ros2 launch asr_summer_school mission.launch.py \
@@ -280,7 +334,7 @@ are written even on an interrupt. Two Ctrl-Cs kill it before that.
 
 ### 3.2b What a run leaves behind, and what to send for analysis
 
-`robot_run.sh` finishes by printing the path to a single tarball:
+`mission_run.sh` finishes by printing the path to a single tarball:
 
 ```text
 one file to hand over: ~/asr_mission_output/myrun/myrun-20260910-1530.tar.gz
@@ -299,7 +353,15 @@ what a run did without having been there:
 | `semantic_map.yaml/json/csv` | The tag deliverable, **+100** |
 | `mission_overlay.png` | The grid with tags, start and finish drawn on — the fastest way to see what happened |
 
-Copy it off the robot with:
+If you ran `mission_run.sh` on your laptop, as [3.0](#30-which-machine-runs-what-and-why)
+recommends, that tarball is already on your laptop and there is nothing to copy.
+The only thing still on the robot is `bringup.log`:
+
+```bash
+scp students@192.168.10.111:~/asr_mission_output/myrun/bringup.log .
+```
+
+If instead you ran the mission over SSH on the robot, fetch the whole bundle:
 
 ```bash
 scp students@192.168.10.111:~/asr_mission_output/myrun/myrun-*.tar.gz .

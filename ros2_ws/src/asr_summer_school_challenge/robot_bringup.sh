@@ -11,7 +11,9 @@
 # scan_preprocess warning, apriltag's parameters, the SLAM configuration - and
 # on the day nobody is going to scroll back through a terminal to find them.
 #
-# Leave this running.  Then use robot_run.sh in a second terminal.
+# Leave this running.  Then start the mission with mission_run.sh - on your
+# LAPTOP, not here, so the deliverables are written there and need no copying
+# off the robot afterwards.  See RUNBOOK section 3.0.
 #
 # Deliberately no `set -u`: ROS 2's own setup.bash reads unbound variables and
 # aborts the script the moment it is sourced under nounset.
@@ -24,7 +26,7 @@ mkdir -p "$OUT"
 
 echo "== bringup, logging to $OUT/bringup.log"
 echo "   leave this running; start the mission with:"
-echo "     ./robot_run.sh $TAG <seconds>"
+echo "     ./mission_run.sh $TAG 240      (on your LAPTOP)"
 echo
 
 # stdbuf keeps the log in step with the screen; without it a crash can lose the

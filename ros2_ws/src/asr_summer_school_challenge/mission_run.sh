@@ -1,23 +1,39 @@
 #!/bin/bash
-# Terminal 2 on the robot: the timed mission, logged, with a diagnostics
-# snapshot around it and everything bundled into one file to send on.
+# The timed mission, logged, with a diagnostics snapshot around it.
 #
-#   ./robot_run.sh                       # tag "robot", 600 s
-#   ./robot_run.sh run3 420              # tag "run3", 420 s
-#   ./robot_run.sh run3 420 scan_rotation:=0.0     # extra args go to the launch
+# RUN THIS WHERE YOU WANT THE RESULTS. It starts Nav2 and the orchestrator, and
+# the orchestrator is what writes the deliverables - so running it on your laptop
+# puts map.pgm, the semantic map and the logs straight onto your laptop, with
+# nothing to copy off the robot afterwards. Running it over SSH on the robot
+# leaves them there instead. Both work; the files land next to whoever ran this.
 #
-# Run `./robot_bringup.sh <same tag>` in another terminal first and leave it up.
+# The robot must already be running, in its own SSH sessions:
+#     ros2 run rmw_zenoh_cpp rmw_zenohd        # the router. Robot only, always.
+#     ./robot_bringup.sh <tag>                 # drivers, SLAM, camera, apriltag
 #
-# What this produces, in ~/asr_mission_output/<tag>/:
+# Those cannot move to the laptop: they open USB devices that are plugged into
+# the robot, and apriltag has to sit next to the camera because raw 1280x720 at
+# 15 fps is about 330 Mbit/s, which no wifi in this building will carry. What
+# crosses the network in this split is /scan_filtered, /map, /tf, /odom, the
+# detections and cmd_vel - well under 1 Mbit/s.
+#
+#   ./mission_run.sh                       # tag "robot", 240 s
+#   ./mission_run.sh run3 240              # tag "run3"
+#   ./mission_run.sh run3 240 scan_rotation:=0.0     # extra args go to the launch
+#
+# What this produces, in ~/asr_mission_output/<tag>/ ON THIS MACHINE:
 #
 #   mission.log        everything the mission printed
-#   bringup.log        from robot_bringup.sh, if you used it
 #   diagnostics.txt    the state of the graph before and after the run
+#   coverage_report.txt  what the run looked at and what it did not
 #   map.pgm/.yaml      the occupancy grid            +100
 #   semantic_map.*     the tags, in three formats    +100
 #   mission_report.json  timings, goal counts, map stats, SLAM jumps
 #   mission_overlay.png  the grid with tags and start/finish drawn on
 #   <tag>-<date>.tar.gz  all of the above, ready to hand over
+#
+# bringup.log is only here if robot_bringup.sh ran on THIS machine. In the split
+# above it stays on the robot; fetch it with scp if a run needs diagnosing.
 #
 # `score_report.py` is NOT run here.  It scores against tag coordinates parsed
 # out of the Gazebo world file, and there is no such file for a physical arena -
@@ -25,7 +41,7 @@
 #
 # Deliberately no `set -u`: ROS 2's setup.bash reads unbound variables.
 TAG=${1:-robot}
-DURATION=${2:-600.0}
+DURATION=${2:-240.0}
 if [ $# -ge 2 ]; then shift 2; else shift $#; fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -117,8 +133,8 @@ $(cd "$HERE" && git status --porcelain 2>/dev/null | wc -l) file(s) modified"
 # to find a TF tree ninety seconds in.
 if ! timeout 15 ros2 node list 2>/dev/null | grep -q .; then
   echo "!! No ROS nodes visible."
-  echo "   Is the bringup running?   ./robot_bringup.sh $TAG"
-  echo "   Is the Zenoh router up ON THIS MACHINE?  ros2 run rmw_zenoh_cpp rmw_zenohd"
+  echo "   Is the bringup running ON THE ROBOT?   ./robot_bringup.sh $TAG"
+  echo "   Is the Zenoh router up ON THE ROBOT?    ros2 run rmw_zenoh_cpp rmw_zenohd"
   echo "   Do the two shells agree on RMW_IMPLEMENTATION and ROS_DOMAIN_ID?"
   exit 1
 fi
