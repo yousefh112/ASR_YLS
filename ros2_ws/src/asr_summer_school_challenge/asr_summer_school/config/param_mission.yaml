@@ -49,7 +49,7 @@ mission_control:
     # of those moves.
     return_speed: 0.18
     return_safety_factor: 1.3
-    return_fixed_margin: 15.0      # cancel the goal, final approach, export
+    return_fixed_margin: 25.0      # cancel the goal, final approach, export
     budget_update_period: 3.0
 
     # ---------------- arrival ----------------
