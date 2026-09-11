@@ -113,3 +113,12 @@ def test_nan_readings_survive_resampling():
     values = [1.0, float('nan'), 1.0]
     out = resample(values, 0.0, 0.1, (3, 0.0, 0.1))
     assert is_nan(out[1]) and out[0] == 1.0 and out[2] == 1.0
+
+
+def test_walled_arena_mode_drops_no_return_beams():
+    """Final rehearsal: no-return beams through wall gaps made 95 m2 'known'
+    around a ~20 m2 arena and put five of eight goals outside the walls."""
+    from asr_summer_school.scan_preprocess import drop_no_return
+    out = drop_no_return([1.0, 20.0, 2.5, 20.0], 20.0)
+    assert out[0] == 1.0 and out[2] == 2.5          # real hits untouched
+    assert is_nan(out[1]) and is_nan(out[3])       # leaks dropped, not traced

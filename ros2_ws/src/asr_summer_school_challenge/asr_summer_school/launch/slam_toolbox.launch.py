@@ -96,6 +96,8 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': use_sim_time,
             'sensor_max_range': laser_max_range,
+            # 'true' for the open maze; the robot bringup passes 'false'.
+            'trace_no_return': LaunchConfiguration('trace_no_return'),
         }],
         # If this dies, slam_toolbox and both Nav2 costmaps go blind and the
         # rest of the stack carries on looking healthy: the map simply stops
@@ -111,6 +113,11 @@ def generate_launch_description():
     ld.add_action(declare_use_sim_time_argument)
     ld.add_action(declare_slam_params_file_cmd)
     ld.add_action(declare_laser_max_range_cmd)
+    ld.add_action(DeclareLaunchArgument(
+        'trace_no_return', default_value='true',
+        description='Trace no-return beams as free space. true for the open '
+                    'maze; false for a walled arena, where they leak through '
+                    'gaps between panels (scan_preprocess.drop_no_return)'))
     ld.add_action(start_async_slam_toolbox_node)
     ld.add_action(scan_preprocess)
 

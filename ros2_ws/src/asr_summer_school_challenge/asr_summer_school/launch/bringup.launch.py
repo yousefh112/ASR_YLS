@@ -98,8 +98,11 @@ def generate_launch_description():
 				[FindPackageShare('asr_summer_school'), 'launch', 'slam_toolbox.launch.py']
 			)
 		),
+		# trace_no_return false: the real arena is walled, so a beam that returns
+		# nothing went through a gap, and tracing it painted the outside free.
 		launch_arguments={'use_sim_time': 'false',
-		                  'laser_max_range': laser_max_range}.items()
+		                  'laser_max_range': laser_max_range,
+		                  'trace_no_return': 'false'}.items()
 	)
 
 	# On by default on the robot: the pad is the manual stop of last resort.

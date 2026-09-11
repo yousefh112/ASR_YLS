@@ -437,6 +437,17 @@ it as "within 0.35 m", patrol had nowhere unswept, and every run spun twice and 
 t+19 s. Gazebo's 360 beams gave ~10 m², so simulation never showed it. Now `0`: **12.3 m²** known
 from the same standstill.
 
+**21. In a walled arena, defect 1's fix paints the outside world as free.** *Hardware-only.*
+Tracing no-return beams as free space is right for the open maze and wrong behind walls: there,
+a beam that returns nothing went through a gap between panels. Measured on nuc11: 40 of 199
+beams no-return inside an enclosed arena. With `min_pass_through: 0` each leaked beam became an
+8 m spoke of free space — 95 m² "known" around a ~20 m² arena — and **five of eight goals,
+~150 s of the 240, were spent trying to reach places outside the walls**. The robot bringup now
+passes `trace_no_return: false`, so `scan_preprocess` drops those beams (`drop_no_return`) and
+free space comes only from real hits. The simulation keeps tracing them; its maze needs it.
+Nav2's recovery tree (`config/nav_to_pose_no_spin.xml`) was changed in the same session: no Spin,
+no Wait, 3 retries, because the rehearsal's spinning was mostly Nav2 recovering, not the mission.
+
 ---
 
 ## 9. Conventions

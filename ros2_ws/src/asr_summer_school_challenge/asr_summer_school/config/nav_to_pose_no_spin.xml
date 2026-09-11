@@ -5,11 +5,14 @@
   cycled clear -> spin -> wait -> back up, which is most of the spinning seen on
   the robot.  A 360-degree LiDAR learns nothing from a spin, the mission already
   sweeps the camera itself, and backing off a wall is what gets a stuck robot
-  moving.  Keep this file otherwise identical to the upstream one.
+  moving.  And 3 retries, not 6: in the final rehearsal a goal whose planner
+  failed every second held the robot for 18 s before the tree gave up; the
+  mission picks the next target faster than six rounds of re-planning.  Keep
+  this file otherwise identical to the upstream one.
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
-    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+    <RecoveryNode number_of_retries="3" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
         <RateController hz="1.0">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">

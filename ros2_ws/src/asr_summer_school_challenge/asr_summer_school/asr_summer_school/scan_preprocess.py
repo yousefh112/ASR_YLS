@@ -141,6 +141,20 @@ def resample(values, angle_min, angle_increment, grid):
     return out
 
 
+def drop_no_return(ranges, no_return):
+    """Turn the no-return code into NaN, which Karto and the costmaps skip.
+
+    For an ENCLOSED arena.  There a beam that returns nothing has gone through
+    a gap between wall panels, and tracing it as free space out to the mapper's
+    range threshold paints the world outside the arena as explored.  In the
+    final arena rehearsal that starburst made 95 m2 "known" around a ~20 m2
+    arena, and every goal the robot failed - five of eight, ~150 s of 240 - was
+    outside the walls.  Real hits still carve free space along their own
+    rays, which in a walled arena is every direction that matters.
+    """
+    return [float('nan') if v == no_return else v for v in ranges]
+
+
 class ScanPreprocess(Node):
     def __init__(self):
         super().__init__('scan_preprocess')
@@ -174,8 +188,19 @@ class ScanPreprocess(Node):
         # between 206 and 209 readings a scan and Karto rejects any mismatch.
         # In Gazebo the count is constant and this is an exact identity.
         self.declare_parameter('fixed_beam_count', True)
+        # Trace no-return beams as free space (the no_return_range trick
+        # above).  True for the open maze, where it is CLAUDE.md defect 1's fix.
+        # The robot bringup passes False: in a walled arena a no-return beam is
+        # a leak through a gap, not open space.  See drop_no_return().
+        self.declare_parameter('trace_no_return', True)
 
         self.sensor_max = float(self.get_parameter('sensor_max_range').value)
+        self.trace_no_return = bool(self.get_parameter('trace_no_return').value)
+        self.get_logger().info(
+            'no-return beams: {}'.format(
+                'traced as free space (open-maze mode)' if self.trace_no_return
+                else 'DROPPED - walled-arena mode, no free space leaks '
+                     'through gaps in the walls'))
         self.auto_max = self.sensor_max <= 0.0
         self.sensor_min = float(self.get_parameter('sensor_min_range').value)
         self.no_return = float(self.get_parameter('no_return_range').value)
@@ -237,6 +262,8 @@ class ScanPreprocess(Node):
                   for v in scan.ranges]
         no_return = sum(1 for v in ranges if v == self.no_return)
         too_close = sum(1 for v in ranges if v != v)
+        if not self.trace_no_return:
+            ranges = drop_no_return(ranges, self.no_return)
 
         if self.fixed_beam_count and ranges:
             if self._grid is None:
