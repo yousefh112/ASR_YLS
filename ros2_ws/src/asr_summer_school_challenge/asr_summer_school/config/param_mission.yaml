@@ -261,7 +261,24 @@ tag_manager:
     # apriltag_ros stops broadcasting when a tag leaves view but tf2 keeps
     # serving the last transform, so anything older than this is a leftover in
     # the buffer rather than a live sighting.
-    max_detection_age: 1.0
+    # 20.0, not 1.0.  This is the ONLY cross-machine clock comparison in the tag
+    # path, and the mission runs on the laptop while apriltag stamps the tag
+    # transform with the NUC's clock.  At 1.0 s, a laptop running a second ahead
+    # of the robot - two machines free-running from their RTCs on an arena wifi
+    # with no NTP - discards EVERY detection here, silently, and the run scores
+    # zero tags with nothing in the log to say why.
+    #
+    # Raising it is safe because this gate is not what detects staleness.  The
+    # dedup on the line below keys on the transform's own stamp, and when a tag
+    # leaves view apriltag stops broadcasting while tf2 keeps serving the last
+    # transform - unchanged stamp, so the dedup suppresses it.  The age test
+    # only ever fires on a first sighting after a gap.
+    #
+    # 20 s is bounded by the TF buffer, which is 30 s (tag_manager.py:119): past
+    # that the map lookup fails anyway, and that failure IS counted.  So 20 s of
+    # tolerance with 10 s of headroom, against a gate that was costing every tag
+    # for no benefit it was actually providing.
+    max_detection_age: 20.0
 
     # Quality gates.  Tag position error grows with range, but a tag seen only
     # once at 5 m is still +50 points while the entire accuracy category is
