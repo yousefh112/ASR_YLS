@@ -69,7 +69,7 @@ DIAG="$OUT/diagnostics.txt"
 # seconds, not the run.
 probe() {
   echo "----- $* -----" >> "$DIAG"
-  timeout 12 "$@" >> "$DIAG" 2>&1 || echo "(no answer within 12 s)" >> "$DIAG"
+  timeout -k 2 12 "$@" >> "$DIAG" 2>&1 || echo "(no answer within 12 s)" >> "$DIAG"
   echo >> "$DIAG"
 }
 
@@ -81,9 +81,9 @@ probe() {
 echo_once() {
   local topic=$1 field=$2
   echo "----- echo $topic $field -----" >> "$DIAG"
-  if timeout 6 ros2 topic echo "$topic" --field "$field" --once >> "$DIAG" 2>&1; then
+  if timeout -k 2 6 ros2 topic echo "$topic" --field "$field" --once >> "$DIAG" 2>&1; then
     :
-  elif timeout 6 ros2 topic echo "$topic" --field "$field" --once \
+  elif timeout -k 2 6 ros2 topic echo "$topic" --field "$field" --once \
        --qos-reliability best_effort >> "$DIAG" 2>&1; then
     echo "(needed best-effort QoS)" >> "$DIAG"
   else
@@ -103,7 +103,7 @@ snapshot() {
   # and this whole snapshot runs twice, once of it before a scored mission.
   for t in /scan /scan_filtered /map /camera/image_raw /camera/detections; do
     echo "----- hz $t -----" >> "$DIAG"
-    timeout 4 ros2 topic hz "$t" >> "$DIAG" 2>&1
+    timeout -k 2 4 ros2 topic hz "$t" >> "$DIAG" 2>&1
     echo >> "$DIAG"
   done
   # The LiDAR's real horizon, and what scan_preprocess turned it into.  These
@@ -116,13 +116,13 @@ snapshot() {
   # timeout that ends it, not the tool.
   for pair in "map base_footprint" "base_link camera_color_optical_frame"; do
     echo "----- tf2_echo $pair -----" >> "$DIAG"
-    timeout 5 ros2 run tf2_ros tf2_echo $pair >> "$DIAG" 2>&1
+    timeout -k 2 5 ros2 run tf2_ros tf2_echo $pair >> "$DIAG" 2>&1
     echo >> "$DIAG"
   done
   # Which frame apriltag actually parents tags to decides whether the optical
   # correction is applied, and it differs between Gazebo and the RealSense.
   echo "----- tf frames containing 'camera' or 'tag' -----" >> "$DIAG"
-  timeout 10 ros2 topic echo /tf_static --once >> "$DIAG" 2>&1
+  timeout -k 2 10 ros2 topic echo /tf_static --once >> "$DIAG" 2>&1
   echo >> "$DIAG"
 }
 
@@ -146,7 +146,7 @@ $(cd "$HERE" && git status --porcelain 2>/dev/null | wc -l) file(s) modified"
 # The bringup has to be up already: this script starts Nav2 and the mission, not
 # the sensors.  Catching it here is much cheaper than watching the mission fail
 # to find a TF tree ninety seconds in.
-if ! timeout 15 ros2 node list 2>/dev/null | grep -q .; then
+if ! timeout -k 2 15 ros2 node list 2>/dev/null | grep -q .; then
   echo "!! No ROS nodes visible."
   echo "   Is the bringup running ON THE ROBOT?   robot_bringup.sh $TAG"
   echo "   Is the Zenoh router up ON THE ROBOT?    ros2 run rmw_zenoh_cpp rmw_zenohd"
@@ -160,7 +160,7 @@ if [ "$NOW" = yes ]; then
 else
   echo "== pre-flight"
   { echo "==================== PREFLIGHT ===================="; } >> "$DIAG"
-  timeout 120 ros2 run asr_summer_school preflight.py 2>&1 | tee -a "$DIAG"
+  timeout -k 2 120 ros2 run asr_summer_school preflight.py 2>&1 | tee -a "$DIAG"
   PREFLIGHT=${PIPESTATUS[0]}
   if [ "$PREFLIGHT" -ne 0 ]; then
     echo
