@@ -404,6 +404,29 @@ four required variables up front.
 
 **16. `package.xml` under-declares runtime dependencies.** See the apt list in section 5.
 
+**17. The real LDS-02 emits a varying number of readings per scan, and Karto rejects the
+mismatch.** *Hardware-only; found in the arena on the day.* Measured on nuc11: 206-209 readings
+per scan on one boot, 203-204 on the next, with `angle_min`, `angle_max` and
+`angle_increment` all drifting so that `(max - min) / inc + 1` is not even an integer. Karto
+fixes a sensor's reading count from the first scan and rejects every later one that differs,
+logging it once (`LaserRangeScan contains 209 range readings, expected 210`) and then
+silently. `/map` published nothing: no frontiers, no navigation, no return, no grid. Gazebo's
+LiDAR always emits exactly 360. `scan_preprocess` now resamples every scan onto the first
+scan's grid, nearest-neighbour by bearing, with uncovered bearings as NaN; in simulation it is an
+exact identity. Guarded by `test/test_scan_resample.py`, using the real metadata.
+
+**18. AprilTag was subscribed to a topic nothing published.** *Hardware-only.* The RealSense node
+comes up as `/camera`, so it publishes `/camera/color/image_raw`; the vendored relative remap
+`camera/color/image_raw` inside namespace `/camera` pointed AprilTag at
+`/camera/camera/color/image_raw`, which has no publisher. No image all run, no error, no tag.
+It survived one inspection because `ros2 topic list` lists a topic that has only a subscriber,
+so both names appeared and looked matched. **Check publisher counts, never topic names.**
+
+**19. `apriltag_ros` defaults `qos_profile` to RELIABLE; the RealSense publishes BEST_EFFORT.**
+A reliable subscriber receives nothing from a best-effort publisher, and neither side reports it.
+`config/apriltag.yaml` sets `sensor_data`. It is a read-only parameter, so a running bringup keeps
+the old value until restarted - which made the fix look ineffective the first time.
+
 ---
 
 ## 9. Conventions
