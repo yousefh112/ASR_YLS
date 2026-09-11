@@ -195,8 +195,8 @@ local_costmap:
         # anywhere between the walls, so the gradient the controller steers
         # down is flat and the robot either refuses to enter or wanders.
         # 0.28 m keeps a ~0.45 m clear channel down the middle of a 1 m gap.
-        inflation_radius: 0.28
-        cost_scaling_factor: 3.0
+        inflation_radius: 0.40   # real arena: keep paths off walls and box corners
+        cost_scaling_factor: 5.0
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -324,10 +324,10 @@ global_costmap:
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
+        cost_scaling_factor: 5.0
         # Matches the local costmap.  Two walls 1 m apart each inflating 0.55 m
         # overlap in the middle, so the planner sees no free lane at all.
-        inflation_radius: 0.28
+        inflation_radius: 0.40   # real arena: keep paths off walls and box corners
       always_send_full_costmap: True
 map_server:
   ros__parameters:
