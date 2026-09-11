@@ -46,6 +46,25 @@ if [ -z "${CAMERA_MODEL:-}" ]; then
   echo "   first.  See RUNBOOK section 3.0."
   exit 1
 fi
+
+# One bringup at a time.  A second one does not fail: it opens the same LiDAR
+# serial port, RealSense and OpenCR as the first, and the two fight.  On nuc11
+# the first camera driver lost the device, the second never opened it (0 Hz
+# detections), both LiDAR drivers read half of every scan, and both SLAM nodes
+# published map->odom - with no error anywhere that said "duplicate".
+#
+# Anchored to the launch process's own command line, python3 first.  An
+# unanchored "bringup.launch.py" also matches any shell whose command merely
+# mentions it - an ssh one-liner, a grep in another terminal - and then refuses
+# a legitimate bringup.  Measured: exactly that happened in testing.
+RUNNING=$(pgrep -f '^[^ ]*python3 [^ ]*/ros2 launch asr_summer_school bringup\.launch\.py')
+if [ -n "$RUNNING" ]; then
+  echo "!! A bringup is already running on this robot (pid $(echo $RUNNING))."
+  echo "   A second one would fight it for the LiDAR, the camera and the OpenCR,"
+  echo "   silently.  Use the one that is running, or stop it first:"
+  echo "     pkill -INT -f bringup.launch.py"
+  exit 1
+fi
 OUT="$HOME/asr_mission_output/$TAG"
 mkdir -p "$OUT"
 

@@ -291,6 +291,12 @@ ros2 run rmw_zenoh_cpp rmw_zenohd                # leave running
 `onboard` differs from the laptop form in the one thing that matters: the robot
 *hosts* the router, so it must not be configured as a client pointing at itself.
 
+`Address already in use (os error 98)` means a router is **already running** —
+that is fine, leave it. Do not `pkill rmw_zenohd` to "make room" while a bringup
+is up: the bringup's nodes lose the router they discovered each other through.
+If the NUC was rebooted (a battery swap does it), the router is gone and this
+step is needed again.
+
 **Step 2 — the robot's drivers**, in a second SSH session. Base, LiDAR, camera,
 AprilTag, SLAM and the frontier detector. No Nav2.
 
@@ -300,6 +306,13 @@ source ~/ASR_YLS/ros2_ws/src/asr_summer_school_challenge/setup_env.sh onboard 11
 robot_bringup.sh myrun                           # leave running
 #   no joypad plugged into the ROBOT?  add  teleop:=false
 ```
+
+**Exactly one bringup.** `robot_bringup.sh` refuses to start if one is already
+running, and says so with its pid. Believe it: a second bringup does not fail, it
+fights the first for the LiDAR port, the RealSense and the OpenCR. On nuc11 that
+left the camera at 0 Hz detections and two SLAM nodes publishing `map->odom`,
+with no error naming the cause. To restart, Ctrl-C the running one first (or
+`pkill -INT -f bringup.launch.py`), then start it again.
 
 Check the first line `scan_preprocess` prints: it reports the LiDAR's actual
 range and warns if that disagrees with what SLAM was configured for. See
