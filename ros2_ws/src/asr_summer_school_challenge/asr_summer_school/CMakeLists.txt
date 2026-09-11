@@ -122,6 +122,10 @@ if(BUILD_TESTING)
   # from "went there and never looked", and on the robot it is the only
   # analysis available at all - score_report needs a Gazebo world file.
   ament_add_pytest_test(test_coverage test/test_coverage.py)
+  # RewrittenYaml substitutes its keys unconditionally, so a launch default is
+  # an override that always fires and silently beats param_mission.yaml.  That
+  # has bitten scan_rotation, mission_duration and stop_after_tags.
+  ament_add_pytest_test(test_launch_defaults test/test_launch_defaults.py)
 endif()
 
 ament_package()

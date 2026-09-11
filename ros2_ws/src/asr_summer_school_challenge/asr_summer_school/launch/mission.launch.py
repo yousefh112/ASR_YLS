@@ -69,8 +69,13 @@ def generate_launch_description():
         'nav2_params_file',
         default_value=os.path.join(package_dir, 'config', 'param_nav2.yaml'),
         description='Parameters for Nav2')
+    # MUST equal param_mission.yaml's value.  RewrittenYaml substitutes this key
+    # unconditionally, so whatever is written here WINS over the config file -
+    # the same trap scan_rotation hit.  test_launch_defaults.py pins the two
+    # together, because a mission_duration that silently stayed at 600 on a
+    # 240 s run would put the robot four hundred seconds past the deadline.
     declare_mission_duration = DeclareLaunchArgument(
-        'mission_duration', default_value='600.0',
+        'mission_duration', default_value='240.0',
         description='Seconds from start to the return deadline')
     declare_output_directory = DeclareLaunchArgument(
         'output_directory', default_value='~/asr_mission_output',
@@ -88,8 +93,11 @@ def generate_launch_description():
                     '2*pi minus one field of view is a complete camera sweep; '
                     'a full circle re-photographs the first frame.  About 3 s '
                     'per goal at the configured 1.9 rad/s.')
+    # MUST equal param_mission.yaml's value - see mission_duration above.  At the
+    # old default of 0 the config's 12 never took effect, so the documented
+    # early return simply did not exist while every document said it did.
     declare_stop_after_tags = DeclareLaunchArgument(
-        'stop_after_tags', default_value='0',
+        'stop_after_tags', default_value='12',
         description='Go home as soon as this many unique tags are found. '
                     '0 disables it; only set it if the true count is known.')
     declare_optical_correction = DeclareLaunchArgument(
