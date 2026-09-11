@@ -76,7 +76,19 @@ def generate_launch_description():
                 ),
                 launch_arguments={
                     'rgb_camera.color_profile': COLOR_PROFILE,
-                    'depth_module.enable_depth': 'false',
+                    # `enable_depth`, not `depth_module.enable_depth`.  Only the
+                    # first is a declared argument of rs_launch_composable; the
+                    # second - which the vendored launch passes, and which this
+                    # file inherited - is silently ignored, so depth kept
+                    # streaming at 848x480x30 alongside the colour we actually
+                    # use.  Confirmed in the robot's own bringup log:
+                    #   Open profile: Depth, Z16, 848x480, FPS: 30
+                    # We never read depth.  Turning it off returns USB bandwidth
+                    # and NUC cycles to the colour stream and to AprilTag, which
+                    # is the thing that scores.
+                    'enable_depth': 'false',
+                    'enable_infra1': 'false',
+                    'enable_infra2': 'false',
                 }.items(),
             )
         )

@@ -828,11 +828,18 @@ class MissionControl:
         # answer already known.
         if self.patrolling:
             current = self.pose()
-            if current is not None:
-                patrol = self.patrol_target(current)
-                if patrol is not None and self.dispatch(patrol, current,
-                                                        kind='patrol'):
-                    return
+            if current is None:
+                # A TF lookup that failed this tick is not the arena being
+                # finished.  On the robot the mission runs on the laptop and TF
+                # crosses wifi, so a transient miss is expected; ending the tag
+                # hunt on one - and logging it as "nowhere left to look" - would
+                # throw away every remaining tag for a hiccup.  Try again next
+                # tick; must_return() still owns the deadline.
+                return
+            patrol = self.patrol_target(current)
+            if patrol is not None and self.dispatch(patrol, current,
+                                                    kind='patrol'):
+                return
             self.patrolling = False
             self.stop_reason = 'nowhere left unswept to look from'
             self.log.info(self.stop_reason)
@@ -898,17 +905,21 @@ class MissionControl:
         # reference run did, standing at the start for 84 s with six of eleven
         # tags unfound.  Keep looking until the return budget says otherwise.
         current = self.pose()
-        if current is not None:
-            patrol = self.patrol_target(current)
-            if patrol is not None:
-                self.log.info(
-                    'no frontiers left, but {:.0f} s of slack: sweeping for '
-                    'tags from somewhere the camera has not looked'
-                    .format(self.clock.slack()))
-                if self.dispatch(patrol, current, kind='patrol'):
-                    self.patrolling = True
-                    self.empty_since = None
-                    return
+        if current is None:
+            # Same reasoning as the patrolling branch above: a transient TF
+            # failure must not be read as an exhausted arena.
+            return
+
+        patrol = self.patrol_target(current)
+        if patrol is not None:
+            self.log.info(
+                'no frontiers left, but {:.0f} s of slack: sweeping for '
+                'tags from somewhere the camera has not looked'
+                .format(self.clock.slack()))
+            if self.dispatch(patrol, current, kind='patrol'):
+                self.patrolling = True
+                self.empty_since = None
+                return
 
         self.stop_reason = (
             'exploration complete, no frontiers left and nowhere unswept '
