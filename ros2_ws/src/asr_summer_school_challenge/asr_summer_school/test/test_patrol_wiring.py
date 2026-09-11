@@ -150,6 +150,8 @@ class Stub:
     goal_patience = mc.MissionControl.goal_patience
     frontier_horizon = mc.MissionControl.frontier_horizon
     target_is_consumed = mc.MissionControl.target_is_consumed
+    retry_banned_frontiers = mc.MissionControl.retry_banned_frontiers
+    swept_near = mc.MissionControl.swept_near
 
     def pose(self):
         return self._pose
@@ -328,3 +330,41 @@ def test_a_zero_min_spacing_cannot_spin_the_control_loop():
     started = time.time()
     stub.patrol_target((0.0, 0.0))
     assert time.time() - started < 1.0, 'relaxation did not terminate promptly'
+
+
+def _banned_frontier(stub):
+    """A frontier the detector still publishes, all of it on the blacklist."""
+    stub.DEFAULTS = dict(Stub.DEFAULTS, blacklist_clears=2)
+    stub.frontiers.centroids = [(9.0, 9.0)]
+    stub.selector.active_blacklist = lambda now: True
+    cleared = []
+    stub.selector.clear_blacklist = lambda: cleared.append(1) or 1
+    stub.empty_since = 0.0
+    return cleared
+
+
+def test_patrol_is_tried_before_the_blacklist_is_dropped():
+    """Arena rehearsal: the only frontier was behind a wall, its ban was dropped
+    twice, the robot drove at the wall four times and patrol never ran."""
+    stub = Stub(grid=open_grid())
+    cleared = _banned_frontier(stub)
+    stub.nothing_to_explore(100.0)
+    assert stub.patrolling and stub.target_kind == 'patrol'
+    assert not cleared, 'dropped the bans while patrol had somewhere to go'
+
+
+def test_the_blacklist_is_dropped_only_when_patrol_has_nowhere():
+    stub = Stub(grid=None)                      # no grid: no patrol candidates
+    cleared = _banned_frontier(stub)
+    stub.nothing_to_explore(100.0)
+    assert cleared == [1]
+    assert stub.blacklist_clears_used == 1
+    assert stub.state is State.EXPLORE
+
+
+def test_no_second_sweep_from_the_same_spot():
+    """Four failed goals from one place used to mean four full turns there."""
+    stub = Stub()
+    stub.swept = [(1.1, 1.0)]
+    assert stub.swept_near((1.0, 1.0, 0.0))     # patrol_min_spacing 0.5
+    assert not stub.swept_near((2.0, 1.0, 0.0))

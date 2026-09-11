@@ -153,7 +153,11 @@ mission_control:
     # driving to.
     consumed_checks: 8
     blacklist_radius: 0.5
-    frontier_max_attempts: 2       # drive failures before a permanent ban
+    # Drive failures before a ban.  1, not 2: in the arena rehearsal the only
+    # frontier sat behind a wall, where LiDAR rays had leaked through gaps
+    # between panels, and each attempt cost a 17 s timeout plus a sweep.  In a
+    # 240 s window a second try at something that just failed is not affordable.
+    frontier_max_attempts: 1
     # Planner refusals are counted apart from drive failures and their ban
     # lapses: early on, the costmap between the robot and a frontier is mostly
     # unknown and "no path" means "not yet", not "never".

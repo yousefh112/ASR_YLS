@@ -449,8 +449,13 @@ class MissionControl:
         # frontier, and DBSCAN merges the lot into one centroid a few
         # centimetres from the robot, which is then rejected as too close.  The
         # symptom is "exploration complete" three seconds into the run.
+        # The start is a sweep position like any other, so a first goal that
+        # fails without the robot getting anywhere does not turn here again.
+        start = self.pose()
+        if start is not None and self.support.param('initial_spin') > 0.0:
+            self.swept.append((start[0], start[1]))
         self.spin_in_place(self.support.param('initial_spin'),
-                           reason='seeding the map')
+                           reason='camera look around the start')
         return True
 
     # ------------------------------------------------------------------ #
@@ -750,14 +755,29 @@ class MissionControl:
             self.log.info('skipping the camera sweep, only {:.0f} s of slack'
                           .format(slack))
             return
+        here = self.pose()
+        if here is not None and self.swept_near(here):
+            self.log.info('skipping the camera sweep: already swept from here')
+            return
         # Recorded before the spin, not after: the point of the list is "the
         # camera has covered this spot", and it has by the time the turn ends
         # whether or not Nav2 reports the Spin as SUCCEEDED.  A cancelled sweep
         # still photographed most of the circle.
-        here = self.pose()
         if here is not None:
             self.swept.append((here[0], here[1]))
         self.spin_in_place(angle, reason='sweeping for tags')
+
+    def swept_near(self, here):
+        """True if the camera already swept from within patrol_min_spacing.
+
+        A goal that fails without the robot getting anywhere leaves it where it
+        last swept, and turning again there re-photographs the same walls.  In
+        the arena rehearsal that was most of the "spinning on the spot": four
+        failed goals, four full turns from one place.
+        """
+        radius = float(self.support.param('patrol_min_spacing'))
+        return any(math.hypot(here[0] - x, here[1] - y) < radius
+                   for x, y in self.swept)
 
     def patrol_target(self, current):
         """Somewhere in known free space the camera has not looked from yet.
@@ -852,6 +872,8 @@ class MissionControl:
                                                     kind='patrol'):
                 return
             self.patrolling = False
+            if self.retry_banned_frontiers(now):
+                return
             self.stop_reason = 'nowhere left unswept to look from'
             self.log.info(self.stop_reason)
             self.state = State.RETURN
@@ -882,29 +904,13 @@ class MissionControl:
                 self.navigator.clearAllCostmaps()
             except Exception as error:
                 self.log.debug('costmap clear failed: {}'.format(error))
-            self.spin_in_place(self.support.param('scan_rotation'),
-                               reason='another look while the costmaps refill')
-            self.empty_since = self.clock.elapsed()
-            return
-
-        # Last resort before going home early.  If the detector is still
-        # publishing frontiers and the only reason none can be chosen is that
-        # they are all on the blacklist, the blacklist is the thing that is
-        # wrong.  Retrying a frontier that failed twenty minutes ago against a
-        # map that has since been filled in is far cheaper than ending the run
-        # with the arena half explored.
-        if (self.frontiers.centroids
-                and self.selector.active_blacklist(now)
-                and self.blacklist_clears_used
-                < int(self.support.param('blacklist_clears'))):
-            self.blacklist_clears_used += 1
-            dropped = self.selector.clear_blacklist()
-            self.log.warn(
-                'every remaining frontier is blacklisted; dropping all {} bans '
-                'and trying again ({}/{})'.format(
-                    dropped, self.blacklist_clears_used,
-                    int(self.support.param('blacklist_clears'))))
-            self.recoveries_used = 0
+            here = self.pose()
+            if here is not None and self.swept_near(here):
+                self.log.info('costmaps cleared; no turn, the camera already '
+                              'swept from here')
+            else:
+                self.spin_in_place(self.support.param('scan_rotation'),
+                                   reason='another look while the costmaps refill')
             self.empty_since = self.clock.elapsed()
             return
 
@@ -932,11 +938,41 @@ class MissionControl:
                 self.empty_since = None
                 return
 
+        if self.retry_banned_frontiers(now):
+            return
+
         self.stop_reason = (
             'exploration complete, no frontiers left and nowhere unswept '
             'to look from ({})'.format(self.selector.last_rejection))
         self.log.info(self.stop_reason)
         self.state = State.RETURN
+
+    def retry_banned_frontiers(self, now):
+        """Drop the blacklist and try again - the LAST resort, after patrol.
+
+        If the detector still publishes frontiers and the only reason none can
+        be chosen is the blacklist, the blacklist may be what is wrong: a map
+        that has since filled in can make a failed frontier reachable.  But it
+        used to run BEFORE patrol, and in the arena rehearsal the only frontier
+        sat behind a wall where LiDAR rays had leaked through gaps: the ban was
+        dropped twice, the robot drove at the wall four times, and patrol -
+        known free space inside the arena, reachable by construction - never
+        ran.  So patrol first; this only when patrol has nothing either.
+        """
+        if self.blacklist_clears_used >= int(self.support.param('blacklist_clears')):
+            return False
+        if not (self.frontiers.centroids and self.selector.active_blacklist(now)):
+            return False
+        self.blacklist_clears_used += 1
+        dropped = self.selector.clear_blacklist()
+        self.log.warn(
+            'every remaining frontier is blacklisted and patrol has nowhere '
+            'left; dropping all {} bans and trying again ({}/{})'.format(
+                dropped, self.blacklist_clears_used,
+                int(self.support.param('blacklist_clears'))))
+        self.recoveries_used = 0
+        self.empty_since = self.clock.elapsed()
+        return True
 
     def explore_step(self):
         self.update_budget()
