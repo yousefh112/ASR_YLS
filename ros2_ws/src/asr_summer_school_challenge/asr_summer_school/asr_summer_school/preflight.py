@@ -35,7 +35,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile,
                        QoSReliabilityPolicy)
 from rclpy.time import Time
-from sensor_msgs.msg import Image, Imu, LaserScan
+from sensor_msgs.msg import CameraInfo, Image, Imu, LaserScan
 from visualization_msgs.msg import Marker
 
 PASS, WARN, FAIL = 'PASS', 'WARN', 'FAIL'
@@ -91,7 +91,7 @@ class Preflight(Node):
         self._watch('/pose', PoseWithCovarianceStamped, RELIABLE_QOS)
         self._watch('/frontier_centroids', Marker, LATCHED_QOS)
         for topic in self._camera_topics():
-            self._watch(topic, Image, SENSOR_QOS)
+            self._watch(topic, CameraInfo, SENSOR_QOS)
         self._watch(DETECTIONS_TOPIC, AprilTagDetectionArray, RELIABLE_QOS)
 
     # ------------------------------------------------------------------ #
@@ -104,11 +104,21 @@ class Preflight(Node):
         Watching all of them and requiring one keeps this file honest across
         both, instead of encoding an assumption that only holds in simulation.
         """
+        # camera_info, NOT the image, on purpose.  Every driver publishes one
+        # CameraInfo per frame, so its rate IS the frame rate - but it is a few
+        # hundred bytes where a 1280x720 frame is 2.7 MB.  Subscribing to the
+        # image from the laptop pulls ~330 Mbit/s across the wifi, which is
+        # exactly what the split deployment exists to avoid: measured on nuc11,
+        # it dragged /odom from 20 Hz to 4.8 and /scan_filtered from 11 Hz to 3
+        # for the length of the check - so preflight was damaging the link it
+        # was meant to be measuring, and reporting the damage as the robot's.
+        #
         # /camera/color/... is what the RealSense on nuc11 actually publishes:
-        # its node comes up as /camera, not /camera/camera.  Both are kept so
-        # this still works if a driver update renames it.
-        return ['/camera/image_raw', '/camera/color/image_raw',
-                '/camera/camera/color/image_raw']
+        # its node comes up as /camera, not /camera/camera.  The other two are
+        # Gazebo's name and the vendored layout, kept so this still works if a
+        # driver update renames it.
+        return ['/camera/camera_info', '/camera/color/camera_info',
+                '/camera/camera/color/camera_info']
 
     def _watch(self, topic, kind, qos):
         def callback(msg, topic=topic):
@@ -284,14 +294,14 @@ class Preflight(Node):
         if detections > 0.0:
             return [Result(
                 'camera', PASS,
-                'no images here, but {} at {:.1f} Hz'.format(
+                'no camera_info here, but {} at {:.1f} Hz'.format(
                     DETECTIONS_TOPIC, detections),
                 'Normal when this runs on the laptop: the images stay on the '
                 'robot by design and only the detections cross. The detector '
                 'is running on live frames, which is what matters.')]
 
         return [Result(
-            'camera', FAIL, 'no image topic and no detections',
+            'camera', FAIL, 'no camera_info and no detections',
             'On the ROBOT: CAMERA_MODEL wrong, or the camera did not enumerate '
             'on USB - check the bringup log for "RealSense Node Is Up!". '
             'On the LAPTOP: this means apriltag is not running on the robot, '
