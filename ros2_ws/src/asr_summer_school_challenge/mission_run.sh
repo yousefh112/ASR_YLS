@@ -44,6 +44,21 @@ TAG=${1:-robot}
 DURATION=${2:-240.0}
 if [ $# -ge 2 ]; then shift 2; else shift $#; fi
 
+# --now: launch the mission immediately.  For a TIMED run: the organisers'
+# stopwatch starts when you press enter, and pre-flight plus the before-snapshot
+# take about 45 s before the robot even starts.  Coming home even a few seconds
+# past their deadline scores 0 instead of +150.  So run pre-flight separately,
+# before they start timing, and then this with --now:
+#     ros2 run asr_summer_school preflight.py      # untimed
+#     mission_run.sh race 240 --now                 # timed, starts at once
+# The after-snapshot and the tarball still happen, once the run is over.
+NOW=no
+ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--now" ]; then NOW=yes; else ARGS+=("$a"); fi
+done
+set -- "${ARGS[@]}"
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HOME/asr_mission_output/$TAG"
 mkdir -p "$OUT"
@@ -139,19 +154,24 @@ if ! timeout 15 ros2 node list 2>/dev/null | grep -q .; then
   exit 1
 fi
 
-echo "== pre-flight"
-{ echo "==================== PREFLIGHT ===================="; } >> "$DIAG"
-timeout 120 ros2 run asr_summer_school preflight.py 2>&1 | tee -a "$DIAG"
-PREFLIGHT=${PIPESTATUS[0]}
-if [ "$PREFLIGHT" -ne 0 ]; then
-  echo
-  echo "!! preflight reported a problem (exit $PREFLIGHT).  Read it above."
-  echo "   Ctrl-C now to fix it, or wait 15 s to run anyway."
-  sleep 15
-fi
+if [ "$NOW" = yes ]; then
+  echo "== --now: launching at once, $(date +%H:%M:%S).  Pre-flight and the"
+  echo "   before-snapshot are skipped - run pre-flight BEFORE the stopwatch starts."
+else
+  echo "== pre-flight"
+  { echo "==================== PREFLIGHT ===================="; } >> "$DIAG"
+  timeout 120 ros2 run asr_summer_school preflight.py 2>&1 | tee -a "$DIAG"
+  PREFLIGHT=${PIPESTATUS[0]}
+  if [ "$PREFLIGHT" -ne 0 ]; then
+    echo
+    echo "!! preflight reported a problem (exit $PREFLIGHT).  Read it above."
+    echo "   Ctrl-C now to fix it, or wait 15 s to run anyway."
+    sleep 15
+  fi
 
-echo "== graph snapshot (before)"
-snapshot "BEFORE THE RUN"
+  echo "== graph snapshot (before)"
+  snapshot "BEFORE THE RUN"
+fi
 
 echo
 echo "== mission: ${DURATION}s ${*:-}"

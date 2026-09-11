@@ -387,6 +387,15 @@ class MissionControl:
     # ------------------------------------------------------------------ #
 
     def initialise(self):
+        # The mission clock starts HERE, before waiting for Nav2, the map and
+        # TF - not after them, which is where it used to start.  The organisers'
+        # stopwatch runs from when we launch, and coming home even a few seconds
+        # after THEIR deadline scores 0 instead of +150.  With the clock
+        # started late, the robot would arrive on time by its own clock and late
+        # by theirs, by exactly the length of the startup.  Counting startup
+        # costs a few seconds of exploring; not counting it risks the largest
+        # single award on the table.
+        self.clock.start()
         timeout = self.support.param('startup_timeout')
 
         self.log.info('waiting for Nav2 to become active...')
@@ -428,9 +437,10 @@ class MissionControl:
             self.log.warn('no {}->{} transform; the odometry fallback for the '
                           'return is unavailable'.format(
                               self.support.param('odom_frame'), self.base_frame))
-        self.clock.start()
-        self.log.info('home recorded at ({:.2f}, {:.2f}), mission window {:.0f} s'
-                      .format(self.home[0], self.home[1], self.clock.duration))
+        self.log.info('home recorded at ({:.2f}, {:.2f}), mission window {:.0f} s, '
+                      '{:.1f} s of it already spent starting up'
+                      .format(self.home[0], self.home[1], self.clock.duration,
+                              self.clock.elapsed()))
         self.state = State.EXPLORE
 
         # Seed the map before asking the detector for frontiers.  From a single
