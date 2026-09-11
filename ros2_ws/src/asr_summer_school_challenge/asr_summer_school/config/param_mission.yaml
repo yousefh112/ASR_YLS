@@ -132,10 +132,11 @@ mission_control:
     # that motivated it - unknown gaps riddling the free space, every gap read
     # as a frontier, the lot clustered onto the robot's own position, and
     # "exploration complete" three seconds in - is a min_pass_through effect:
-    # from a standstill the mapper has processed exactly one scan, so almost no
-    # cell has been crossed the two times it needs to stop being unknown.  The
-    # thing that actually clears it is translation, because only translation
-    # gets a second scan processed.
+    # from a standstill the mapper has processed exactly one scan, and Karto
+    # needs MORE than min_pass_through rays through a cell.  On the real LDS-02
+    # (~200 beams) that ended all three arena rehearsals at t+19 s with 1 m2
+    # known.  Fixed by min_pass_through: 0 in param_slam_toolbox.yaml - 12.3 m2
+    # known from a standstill on nuc11 - not by spinning, which adds no scans.
     initial_spin: 5.30
     spin_time_allowance: 25.0
 

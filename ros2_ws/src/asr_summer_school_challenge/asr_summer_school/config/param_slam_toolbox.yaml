@@ -117,5 +117,16 @@ slam_toolbox:
     minimum_angle_penalty: 0.9
     minimum_distance_penalty: 0.5
     use_response_expansion: true
-    min_pass_through: 2
+    # 0, not the default 2.  Karto marks a cell only when
+    #   cellPassCnt > min_pass_through        (Karto.h, OccupancyGrid::UpdateCell)
+    # so 2 means THREE rays through a cell before it is known at all.  A robot
+    # that has not moved has exactly one scan, and the real LDS-02 has ~200
+    # beams: only a ~0.5 m circle gets three rays.  Measured on nuc11 in the
+    # arena: 1.02 m2 known out of an 82 m2 grid while the scan itself had 159
+    # wall hits out to 4.95 m.  The frontier search then saw one ring around the
+    # robot, rejected it as "within 0.35 m", and all three rehearsal runs spun
+    # twice and went home at t+19 s.  Gazebo's 360 beams made the circle ~10 m2,
+    # which is why simulation never showed it.  With 0 one ray is enough; walls
+    # still need hits in over 10% of their passes (occupancy_threshold).
+    min_pass_through: 0
     occupancy_threshold: 0.1

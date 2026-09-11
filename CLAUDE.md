@@ -125,8 +125,8 @@ So the table is a **confound**, not a mechanism: n=1 per condition, and a differ
 sends the robot down a different path, into different loop closures. The localisation difference
 was path luck. Three claims elsewhere in the repo inherited the same false premise and are also
 wrong — the recovery spin does not "refresh the map", and `initial_spin` does not "seed the map"
-(the startup speckle it was blamed on is a `min_pass_through` effect that only *translation*
-clears).
+(the startup speckle it was blamed on is a `min_pass_through` effect, now fixed by setting it
+to 0 — see defect 20).
 
 What the sweep **does** do is point the camera at tags — 59° in Gazebo, **69° on the robot** at the
 1280×720 profile — which is worth +50 each and is why it stays. `scan_rotation` is 5.30 rad rather
@@ -426,6 +426,16 @@ so both names appeared and looked matched. **Check publisher counts, never topic
 A reliable subscriber receives nothing from a best-effort publisher, and neither side reports it.
 `config/apriltag.yaml` sets `sensor_data`. It is a read-only parameter, so a running bringup keeps
 the old value until restarted - which made the fix look ineffective the first time.
+
+**20. `min_pass_through: 2` left the real map at 1 m² from a standstill.** *Hardware-only; cost
+all three arena rehearsals.* Karto marks a cell only when `cellPassCnt > min_pass_through`
+(`Karto.h`, `OccupancyGrid::UpdateCell`), so 2 means **three** rays through a cell. A robot that
+has not moved has one processed scan, and the LDS-02's ~200 beams give three rays only within
+~0.5 m. Measured on nuc11: **1.02 m² known** out of an 82 m² grid, while the scan itself held 159
+wall hits out to 4.95 m. The frontier detector saw one ring round the robot, the mission rejected
+it as "within 0.35 m", patrol had nowhere unswept, and every run spun twice and drove home at
+t+19 s. Gazebo's 360 beams gave ~10 m², so simulation never showed it. Now `0`: **12.3 m²** known
+from the same standstill.
 
 ---
 

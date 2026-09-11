@@ -44,18 +44,21 @@ TAG=${1:-robot}
 DURATION=${2:-240.0}
 if [ $# -ge 2 ]; then shift 2; else shift $#; fi
 
-# --now: launch the mission immediately.  For a TIMED run: the organisers'
-# stopwatch starts when you press enter, and pre-flight plus the before-snapshot
-# take about 45 s before the robot even starts.  Coming home even a few seconds
-# past their deadline scores 0 instead of +150.  So run pre-flight separately,
-# before they start timing, and then this with --now:
-#     ros2 run asr_summer_school preflight.py      # untimed
-#     mission_run.sh race 240 --now                 # timed, starts at once
-# The after-snapshot and the tarball still happen, once the run is over.
-NOW=no
+# The mission launches IMMEDIATELY by default: the organisers' stopwatch starts
+# when you press enter, and pre-flight plus the before-snapshot took about 45 s
+# before the robot even moved.  Pre-flight is opt-in:
+#     mission_run.sh race 240 --preflight           # check first, then launch
+#     ros2 run asr_summer_school preflight.py       # or on its own, untimed
+# --now is still accepted and changes nothing.  The after-snapshot and the
+# tarball still happen, once the run is over.
+NOW=yes
 ARGS=()
 for a in "$@"; do
-  if [ "$a" = "--now" ]; then NOW=yes; else ARGS+=("$a"); fi
+  case "$a" in
+    --now) NOW=yes ;;
+    --preflight) NOW=no ;;
+    *) ARGS+=("$a") ;;
+  esac
 done
 set -- "${ARGS[@]}"
 
@@ -155,8 +158,7 @@ if ! timeout -k 2 15 ros2 node list 2>/dev/null | grep -q .; then
 fi
 
 if [ "$NOW" = yes ]; then
-  echo "== --now: launching at once, $(date +%H:%M:%S).  Pre-flight and the"
-  echo "   before-snapshot are skipped - run pre-flight BEFORE the stopwatch starts."
+  echo "== launching at once, $(date +%H:%M:%S) (pre-flight skipped; add --preflight to run it)"
 else
   echo "== pre-flight"
   { echo "==================== PREFLIGHT ===================="; } >> "$DIAG"
