@@ -42,9 +42,21 @@ def generate_launch_description():
                 package='apriltag_ros',
                 plugin='AprilTagNode',
                 name='apriltag',
+                # ABSOLUTE, and /camera/color/..., not the vendored relative
+                # 'camera/color/...'.  Inside namespace /camera that relative
+                # name resolves to /camera/camera/color/image_raw - but the
+                # RealSense node on nuc11 comes up as /camera, not
+                # /camera/camera, so it publishes /camera/color/image_raw.
+                # Measured by publisher count, not by topic name:
+                #   /camera/color/image_raw         publishers=[camera]  subscribers=[]
+                #   /camera/camera/color/image_raw  publishers=[]        subscribers=[apriltag]
+                # AprilTag subscribed to a topic nobody published, received no
+                # image all run, raised no error - and found no tag.  A bare
+                # `ros2 topic list` shows both names, because a subscription
+                # alone makes a topic appear, which is how this hid.
                 remappings=[
-                    ('image_rect', 'camera/color/image_raw'),
-                    ('camera_info', 'camera/color/camera_info'),
+                    ('image_rect', '/camera/color/image_raw'),
+                    ('camera_info', '/camera/color/camera_info'),
                 ],
                 parameters=[params['camera']['apriltag']['ros__parameters']],
                 extra_arguments=[{'use_intra_process_comms': True}],

@@ -104,7 +104,11 @@ class Preflight(Node):
         Watching all of them and requiring one keeps this file honest across
         both, instead of encoding an assumption that only holds in simulation.
         """
-        return ['/camera/image_raw', '/camera/camera/color/image_raw']
+        # /camera/color/... is what the RealSense on nuc11 actually publishes:
+        # its node comes up as /camera, not /camera/camera.  Both are kept so
+        # this still works if a driver update renames it.
+        return ['/camera/image_raw', '/camera/color/image_raw',
+                '/camera/camera/color/image_raw']
 
     def _watch(self, topic, kind, qos):
         def callback(msg, topic=topic):

@@ -106,6 +106,41 @@ def map_range(value, horizon, floor, no_return, zero_is_no_return=True):
     return value
 
 
+def resample(values, angle_min, angle_increment, grid):
+    """Nearest-neighbour resample of one scan onto a fixed angular grid.
+
+    `grid` is (n_out, out_min, out_increment).  Output beam i sits at bearing
+    out_min + i * out_increment and takes the input reading nearest that
+    bearing.  A bearing the input does not cover - the sensor's own gap, or the
+    edge of a scan that came out a beam short - becomes NaN, which Karto and
+    both Nav2 costmaps skip.  Not the no-return value: that would trace free
+    space down a bearing the sensor never measured.
+
+    Why this exists: the real LDS-02 does not emit a fixed number of readings.
+    Measured on nuc11 over 100 consecutive scans: 206, 207, 208 and 209, with
+    angle_min, angle_max and angle_increment all varying too - so much that
+    (angle_max - angle_min) / angle_increment + 1 is not even an integer
+    (207.502).  Karto fixes the sensor's reading count from the first scan it
+    sees and rejects every later scan whose count differs:
+
+        LaserRangeScan contains 209 range readings, expected 210
+
+    so SLAM discarded almost the whole stream, /map stayed empty, and with it
+    went the frontiers, the navigation, the return and the grid deliverable.
+    Gazebo's LiDAR always emits exactly 360, so no simulated run could show it.
+    """
+    n_out, out_min, out_inc = grid
+    out = [float('nan')] * n_out
+    n_in = len(values)
+    if n_in == 0 or angle_increment <= 0.0:
+        return out
+    for i in range(n_out):
+        j = int(round((out_min + i * out_inc - angle_min) / angle_increment))
+        if 0 <= j < n_in:
+            out[i] = values[j]
+    return out
+
+
 class ScanPreprocess(Node):
     def __init__(self):
         super().__init__('scan_preprocess')
@@ -134,6 +169,11 @@ class ScanPreprocess(Node):
         # than "an obstacle at zero range" (nothing reports that).  Gazebo uses
         # inf and never exercises this; the robot does.  See map_range.
         self.declare_parameter('zero_is_no_return', True)
+        # Resample every scan onto the first scan's angular grid, so the
+        # reading count never changes.  See resample(): the real LDS-02 varies
+        # between 206 and 209 readings a scan and Karto rejects any mismatch.
+        # In Gazebo the count is constant and this is an exact identity.
+        self.declare_parameter('fixed_beam_count', True)
 
         self.sensor_max = float(self.get_parameter('sensor_max_range').value)
         self.auto_max = self.sensor_max <= 0.0
@@ -142,6 +182,11 @@ class ScanPreprocess(Node):
         self.published_max = float(self.get_parameter('published_range_max').value)
         self.zero_is_no_return = bool(
             self.get_parameter('zero_is_no_return').value)
+        self.fixed_beam_count = bool(
+            self.get_parameter('fixed_beam_count').value)
+        self._grid = None            # (n, angle_min, angle_increment), from scan 1
+        self._counts_seen = set()
+        self._reported_resample = False
 
         if self.published_max <= self.no_return:
             self.get_logger().error(
@@ -192,6 +237,39 @@ class ScanPreprocess(Node):
                   for v in scan.ranges]
         no_return = sum(1 for v in ranges if v == self.no_return)
         too_close = sum(1 for v in ranges if v != v)
+
+        if self.fixed_beam_count and ranges:
+            if self._grid is None:
+                # The first scan defines the grid.  angle_max is recomputed
+                # from it rather than copied from the driver, whose own value is
+                # inconsistent with its count - so that Karto's expected count,
+                # round((max - min) / increment) + 1, is exactly n on every scan.
+                self._grid = (len(ranges), scan.angle_min, scan.angle_increment)
+            n_out, out_min, out_inc = self._grid
+            self._counts_seen.add(len(ranges))
+            total_time = scan.time_increment * len(ranges)
+            intensities = list(scan.intensities)
+            if len(ranges) != n_out or scan.angle_min != out_min \
+                    or scan.angle_increment != out_inc:
+                ranges = resample(ranges, scan.angle_min, scan.angle_increment,
+                                  self._grid)
+                intensities = (resample(intensities, scan.angle_min,
+                                        scan.angle_increment, self._grid)
+                               if len(intensities) == len(scan.ranges) else [])
+            scan.angle_min = out_min
+            scan.angle_increment = out_inc
+            scan.angle_max = out_min + (n_out - 1) * out_inc
+            scan.time_increment = total_time / n_out if n_out else 0.0
+            scan.intensities = intensities
+            if not self._reported_resample and len(self._counts_seen) > 1:
+                self._reported_resample = True
+                self.get_logger().warn(
+                    'the LiDAR is emitting a varying number of readings per '
+                    'scan ({}); resampling every scan to a fixed {} so '
+                    'slam_toolbox does not reject them.  Expected on a real '
+                    'LDS-02.'.format(
+                        ', '.join(str(c) for c in sorted(self._counts_seen)),
+                        n_out))
 
         scan.ranges = ranges
         scan.range_max = self.published_max

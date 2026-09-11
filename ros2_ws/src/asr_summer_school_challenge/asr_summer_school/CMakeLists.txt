@@ -126,6 +126,10 @@ if(BUILD_TESTING)
   # an override that always fires and silently beats param_mission.yaml.  That
   # has bitten scan_rotation, mission_duration and stop_after_tags.
   ament_add_pytest_test(test_launch_defaults test/test_launch_defaults.py)
+  # The real LDS-02 emits 206-209 readings a scan; Karto rejects any count
+  # that differs from its first scan, and Gazebo's constant 360 can never
+  # show it.  These pin the resampler that keeps /map alive on hardware.
+  ament_add_pytest_test(test_scan_resample test/test_scan_resample.py)
 endif()
 
 ament_package()
