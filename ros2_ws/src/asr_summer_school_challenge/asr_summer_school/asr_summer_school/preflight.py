@@ -207,6 +207,57 @@ class Preflight(Node):
                 out.append(Result(label, PASS, '{:.1f} Hz'.format(rate)))
         return out
 
+    def check_clock_skew(self):
+        """Is this machine's clock close enough to the robot's?
+
+        tag_manager drops any tag frame older than max_detection_age (1.0 s),
+        and it compares the stamp apriltag_ros wrote - the ROBOT's clock - with
+        `self.get_clock().now()`, which on the laptop is the LAPTOP's clock.
+        That comparison is the only cross-machine one in the tag path; the TF
+        lookup that follows is robot-stamped end to end and is immune.
+
+        So if this machine runs more than a second ahead of the robot, every
+        single detection is discarded at that gate, silently: no log, no
+        counter, and the TF-based tag check below still reports tags in view
+        because it asks for the latest transform rather than a stamped one.
+        A whole run of zero tags, with nothing anywhere saying why.
+
+        /odom is robot-stamped, always present and published at 20 Hz, so the
+        gap between its newest stamp and this clock IS the quantity that gate
+        compares - measured over the real path rather than inferred.
+        """
+        msg = self.last.get('/odom')
+        if msg is None:
+            return []            # check_odometry already reports the silence
+
+        stamp = Time.from_msg(msg.header.stamp).nanoseconds / 1e9
+        skew = self.get_clock().now().nanoseconds / 1e9 - stamp
+        limit = 1.0              # tag_manager's max_detection_age default
+
+        if skew > limit:
+            return [Result(
+                'clock skew', FAIL,
+                'this machine is {:.2f} s ahead of the robot'.format(skew),
+                'Every AprilTag detection will be silently discarded: '
+                'tag_manager drops frames older than max_detection_age '
+                '({:.1f} s) measured against THIS clock. Fix before the run:\n'
+                '    ssh -t students@192.168.10.111 '
+                "'sudo timedatectl set-ntp true'\n"
+                'then re-run this. If that is not available, raise '
+                'max_detection_age above {:.1f} s as a stopgap - it only '
+                'weakens the staleness test, where the alternative is zero '
+                'tags.'.format(limit, skew + 0.5))]
+
+        if skew > limit * 0.5:
+            return [Result(
+                'clock skew', WARN,
+                '{:+.2f} s ahead of the robot'.format(skew),
+                'Within tolerance but not by much; past {:.1f} s every '
+                'detection is dropped. Worth syncing before the run.'.format(limit))]
+
+        return [Result('clock skew', PASS,
+                       '{:+.2f} s against the robot'.format(skew))]
+
     def check_camera(self):
         live = [(t, self.rate(t)) for t in self._camera_topics()
                 if self.rate(t) > 0.0]
@@ -406,6 +457,8 @@ class Preflight(Node):
         results = []
         results += self.check_scan()
         results += self.check_odometry()
+        # After odometry, because it uses /odom's stamp as the robot's clock.
+        results += self.check_clock_skew()
         results += self.check_camera()
         results += self.check_transforms()
         results += self.check_tag_pipeline()

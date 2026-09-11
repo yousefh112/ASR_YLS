@@ -24,6 +24,7 @@ so the two cannot interfere.
 
 import math
 import os
+import threading
 import time
 from enum import Enum
 
@@ -1327,14 +1328,52 @@ def main(args=None):
     for node in (support, frontiers, tags, maps):
         executor.add_node(node)
 
-    import threading
     thread = threading.Thread(target=executor.spin, daemon=True)
     thread.start()
 
     mission = MissionControl(support, navigator, planner, frontiers, tags, maps)
+
+    # Hard deadline backstop, on the wall clock, independent of the mission
+    # thread.
+    #
+    # run()'s `finally: self.export()` protects against an exception. It does
+    # NOT protect against a hang, and BasicNavigator can hang indefinitely:
+    # goToPose, spin and clearAllCostmaps each open with
+    # `while not wait_for_server(timeout_sec=1.0)`, which logs and loops
+    # forever, and then call `spin_until_future_complete` with no timeout at
+    # all. Five call sites in this file are unguarded. Since the mission runs on
+    # the laptop and Nav2's link to the robot crosses wifi, a drop inside one of
+    # those calls hangs run() where it stands - and the occupancy grid and the
+    # semantic map, 200 points, are never written.
+    #
+    # So: if the run has not finished long after it should have, write the
+    # deliverables from this thread and exit. The export touches only the map
+    # cache, the tag map and the filesystem - never Nav2 - so it cannot hang on
+    # the same thing the mission is stuck on.
+    grace = float(support.param('return_grace'))
+    budget = float(support.param('mission_duration')) + grace + 90.0
+
+    def _watchdog():
+        mission.log.error(
+            '=== WATCHDOG: {:.0f} s with no finish. Something is wedged - '
+            'almost certainly a Nav2 call that never returned. Writing the '
+            'deliverables now and exiting. ==='.format(budget))
+        try:
+            mission.export()
+        except Exception as error:                       # noqa: BLE001
+            mission.log.error('watchdog export failed: {}'.format(error))
+        # _exit rather than sys.exit: the mission thread is blocked inside a
+        # call that will not return, so a clean shutdown would block too.
+        os._exit(2)
+
+    watchdog = threading.Timer(budget, _watchdog)
+    watchdog.daemon = True
+    watchdog.start()
+
     try:
         mission.run()
     finally:
+        watchdog.cancel()
         executor.shutdown()
         thread.join(timeout=2.0)
         for node in (support, frontiers, tags, maps, navigator, planner):
