@@ -1378,8 +1378,12 @@ def main(args=None):
         thread.join(timeout=2.0)
         for node in (support, frontiers, tags, maps, navigator, planner):
             node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        # try_shutdown, not `if rclpy.ok(): rclpy.shutdown()`.  On SIGINT
+        # rclpy's signal handler shuts the rcl context down, but ok() can still
+        # read True for a moment, so the guard passes and the second shutdown
+        # raises "rcl_shutdown already called" - a traceback at the very end of
+        # the log that reads like a crash.  By then the export has already run.
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':
