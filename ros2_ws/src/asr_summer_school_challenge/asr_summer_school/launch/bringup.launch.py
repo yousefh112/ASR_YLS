@@ -155,7 +155,9 @@ def generate_launch_description():
 			'pose_topic': 'pose',
 			'epsilon': 0.5,
 			'min_points': 3,
-			'min_frontier_size': 12,
+			# 20 cells = 1 m: real arena, ignore corner slivers and chase the big
+			# openings (the doorway to its largest section was ~38 cells).
+			'min_frontier_size': 20,
 			# Deliberately not laser_max_range: the frontier search flood-fills
 			# through known free space, so this caps how far along already
 			# mapped corridors it may look, not how far the LiDAR sees.  At the
