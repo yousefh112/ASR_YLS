@@ -105,6 +105,8 @@ class TagManager(Node):
             gate_distance=self.get_parameter('gate_distance').value,
             gate_patience=self.get_parameter('gate_patience').value)
 
+        self._stale = 0
+        self._warned_stale = False
         self._lock = threading.Lock()
         self._last_stamp = {}
         self._start_time = None
@@ -240,8 +242,27 @@ class TagManager(Node):
         detection = self._buffer.lookup_transform(parent, frame, Time())
 
         stamp = Time.from_msg(detection.header.stamp)
-        if (self._now() - stamp).nanoseconds / 1e9 > self.max_detection_age:
-            return  # stale buffer entry, the tag is no longer in view
+        age = (self._now() - stamp).nanoseconds / 1e9
+        if age > self.max_detection_age:
+            # Stale buffer entry: the tag is no longer in view.
+            #
+            # Counted, because this gate compares the ROBOT's clock (apriltag
+            # stamps the tag TF with the image header) against THIS node's
+            # clock, and the mission runs on the laptop. If the two disagree by
+            # more than max_detection_age, every detection lands here and the
+            # run scores zero tags with nothing in the log to say why. The
+            # counter and the one-off warning below turn that from invisible
+            # into obvious; preflight's clock-skew check catches it earlier.
+            self._stale += 1
+            if not self._warned_stale and age > self.max_detection_age * 3:
+                self._warned_stale = True
+                self.get_logger().warn(
+                    'tag detections are arriving {:.1f} s old, well past '
+                    'max_detection_age {:.1f} s, so ALL of them are being '
+                    'discarded. If this machine is not the robot, its clock is '
+                    'ahead of the robot\'s - sync them, or no tag will ever be '
+                    'recorded.'.format(age, self.max_detection_age))
+            return
         if self._last_stamp.get(tag_id) == stamp.nanoseconds:
             return  # this exact detection has already been fused
         self._last_stamp[tag_id] = stamp.nanoseconds

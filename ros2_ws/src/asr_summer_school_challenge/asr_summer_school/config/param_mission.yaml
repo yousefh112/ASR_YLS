@@ -9,9 +9,12 @@
 # a key nothing declares is silently ignored, which looks exactly like a
 # setting that had no effect.
 #
-# `mission.launch.py` rewrites use_sim_time, mission_duration, output_directory
-# and optical_correction through RewrittenYaml, which only substitutes keys that
-# already exist in this file.  Do not delete those four.
+# `mission.launch.py` rewrites SIX keys through RewrittenYaml: use_sim_time,
+# mission_duration, output_directory, optical_correction, scan_rotation and
+# stop_after_tags.  The substitution is UNCONDITIONAL, so each launch argument's
+# default overrides whatever is written here - editing this file alone changes
+# nothing for those six.  test/test_launch_defaults.py fails if any of them
+# disagrees with its launch default.  Do not delete them.
 
 /**:
   ros__parameters:
@@ -20,8 +23,9 @@
 mission_control:
   ros__parameters:
     # ---------------- deadline ----------------
-    # The one number the organisers have not published.  Set it from the
-    # briefing before the run, here or with `mission_duration:=<seconds>`.
+    # 240 s: the announced window for the real run.  Change it here AND in
+    # mission.launch.py's default together - the launch default wins - or pass
+    # `mission_duration:=<seconds>` for a one-off.
     mission_duration: 240.0
     startup_timeout: 90.0         # give SLAM, TF and Nav2 this long to come up
     loop_period: 0.4               # state machine tick
@@ -65,7 +69,17 @@ mission_control:
     map_jump_threshold: 0.35
     map_jump_threshold_rad: 0.26
     trust_odom_after_jump: true
-    return_grace: 45.0             # stop trying this far past the deadline
+    # Stop trying this far past the deadline.  25, not 45.
+    #
+    # The bands are +150 on time, 0 at 30 s late, -30 at 60, -70 at 120. Once
+    # the deadline has passed the return award is gone either way, so the only
+    # thing still at stake is not sliding into the negative band - and the
+    # deliverables, which are not written until the robot stops trying.
+    # 45 s left it driving well inside the 0-to--30 band with the export
+    # waiting on it; 25 gives up while the penalty is still zero and writes the
+    # 200 points of files. It was sized for a 600 s window, where 45 s was 7%
+    # of the run; here it is 19%.
+    return_grace: 25.0
 
     # Stop exploring the moment this many unique tags are in hand and drive
     # home, however much time is left.  0 disables it, which is the right
